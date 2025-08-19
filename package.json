@@ -1,15 +1,24 @@
 {
-  "name": "nodejs",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "deploy": "node deploy.js"
   },
+  "dependencies": {
+    "discord.js": "^14.21.0",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0",
+    "node-cron": "^4.2.1",
+    "node-windows": "^1.0.0-beta.8"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  },
+  "name": "workspace",
+  "version": "1.0.0",
+  "main": "clear.js",
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "dependencies": {
-    "@types/node": "^22.13.11"
-  }
+  "description": ""
 }
