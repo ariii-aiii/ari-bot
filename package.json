@@ -2,7 +2,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "deploy": "node deploy.js"
+    "deploy": "node deploy.js",
+    "register": "node scripts/register.js"
   },
   "dependencies": {
     "discord.js": "^14.21.0",
@@ -14,11 +15,7 @@
   "devDependencies": {
     "nodemon": "^3.1.10"
   },
-  "name": "workspace",
-  "version": "1.0.0",
-  "main": "clear.js",
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": ""
+  "engines": {
+    "node": "20.x"
+  }
 }
