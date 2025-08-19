@@ -1,17 +1,16 @@
-process.on("unhandledRejection", (err) => console.error("[unhandledRejection]", err));
-process.on("uncaughtException", (err) => console.error("[uncaughtException]", err));
-
-
-// src/index.js — AriBot (모집 + 스티키 공지 + 공지수정 + rooms.json 저장)
+// src/index.js — AriBot (모집 + 스티키 공지 + notice-edit + rooms.json 저장)
 require("dotenv").config();
+process.on("unhandledRejection", (e)=>console.error("[unhandledRejection]", e));
+process.on("uncaughtException", (e)=>console.error("[uncaughtException]", e));
+
 const DEBUG = process.env.DEBUG === "true";
 console.log("[AriBot] boot. tokenLen =", (process.env.BOT_TOKEN || "").length);
-if (DEBUG) console.log("[AriBot] DEBUG is ON");
+if (!process.env.BOT_TOKEN) { console.error("[AriBot] BOT_TOKEN missing!"); process.exit(1); }
 
-// server.js가 루트에 있으면 아래 경로 유지
-const keepAlive = require("../server.js");
+// keepAlive
+const keepAlive = require("../server.js"); keepAlive();
 
-const fs = require("fs");
+const fs   = require("fs");
 const path = require("path");
 const ROOMS_PATH = path.join(__dirname, "rooms.json");
 
@@ -21,53 +20,34 @@ const {
   EmbedBuilder, ChannelType, PermissionFlagsBits,
 } = require("discord.js");
 
-// ── 권한/상수
 const CLOSE_ROLE_IDS = ["1276555695390457929", "1403607361360236575"];
 const MAX_SHOW_HARD = 120;
-const STICKY_DEBOUNCE_MS = 0; // 0이면 새 메시지마다 즉시 끌올
+const STICKY_DEBOUNCE_MS = 0; // 0 = 새 메시지마다 즉시 끌올
 
 function canClose(i) {
   if (!i.inGuild()) return false;
   if (i.guild?.ownerId && i.user?.id === i.guild.ownerId) return true;
   if (i.member?.permissions?.has(PermissionFlagsBits.Administrator)) return true;
-  const roles = i.member?.roles?.cache;
-  return roles?.some(r => CLOSE_ROLE_IDS.includes(r.id)) ?? false;
+  return i.member?.roles?.cache?.some(r => CLOSE_ROLE_IDS.includes(r.id)) ?? false;
 }
 
-// ── 상태
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
 });
 let BOT_AVATAR_URL = null;
+
 const rooms = new Map();         // messageId -> room
 const stickyNotices = new Map(); // channelId -> { style,title,content,pin,expiresAt,lastMsgId,lastPostAt }
 
-function normalizeNewlines(text) {
-  return (text || "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\\n/g, "\n")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/\s*\|\s*/g, "\n")
-    .replace(/\s*\/\/\s*/g, "\n");
-}
-function buildEmbedPurple({ title, content }) {
-  return new EmbedBuilder().setColor(0xCDC1FF).setTitle(title || null).setDescription(content);
-}
-function buildEmbedBlue({ title, content }) {
-  return new EmbedBuilder().setColor(0x2b6cff).setTitle(title || null).setDescription(content);
-}
-function buildEmbedMin({ title, content }) {
-  return new EmbedBuilder().setColor(0x2b2d31).setTitle(title || null).setDescription(content);
-}
-function pad(n){ return String(n).padStart(2,"0"); }
-function fmtTime(ts){
-  if(!ts) return "";
-  const d = new Date(ts);
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
+const normalizeNewlines = (t) => (t || "")
+  .replace(/\r\n/g, "\n").replace(/\\n/g, "\n")
+  .replace(/<br\s*\/?>/gi, "\n").replace(/\s*\|\s*/g, "\n").replace(/\s*\/\/\s*/g, "\n");
 
-// ── 웹후크/공지 유틸
-const WEBHOOK_NAME = "ARI BOT";
+const buildEmbedPurple = ({ title, content }) => new EmbedBuilder().setColor(0xCDC1FF).setTitle(title || null).setDescription(content);
+const buildEmbedBlue   = ({ title, content }) => new EmbedBuilder().setColor(0x2b6cff).setTitle(title || null).setDescription(content);
+const buildEmbedMin    = ({ title, content }) => new EmbedBuilder().setColor(0x2b2d31).setTitle(title || null).setDescription(content);
+
+const WEBHOOK_NAME   = "ARI BOT";
 const WEBHOOK_AVATAR = process.env.WEBHOOK_AVATAR || null;
 const hookCache = new Map();
 
@@ -107,23 +87,46 @@ async function sendStyledNotice(channel, { style, title, content, pin }) {
   if (pin) { try { await sent.pin(); } catch {} }
   return sent;
 }
+
+// ✅ 핵심 패치: 웹후크/일반 메시지 모두 수정 가능
 async function editStyledNoticeById(channel, messageId, { style, title, content, pin }) {
   const payload = buildNoticePayload({ style, title, content });
+
+  // 1) 웹후크로 수정 시도
+  try {
+    const hook = await getOrCreateHook(channel);
+    if (hook) {
+      await hook.editMessage(messageId, {
+        username: WEBHOOK_NAME,
+        avatarURL: WEBHOOK_AVATAR || BOT_AVATAR_URL || undefined,
+        allowedMentions: { parse: [] },
+        ...payload,
+      });
+      // 핀/언핀 처리
+      try {
+        const msg = await channel.messages.fetch(messageId);
+        if (typeof pin === "boolean") {
+          if (pin && !msg.pinned) await msg.pin();
+          if (!pin && msg.pinned) await msg.unpin();
+        }
+      } catch {}
+      return;
+    }
+  } catch (e) {
+    if (DEBUG) console.warn("[notice-edit] webhook edit fail → fallback:", e?.message || e);
+  }
+
+  // 2) 일반 메시지로 폴백
   const msg = await channel.messages.fetch(messageId);
   await msg.edit(payload);
   if (typeof pin === "boolean") {
     try {
-      const pinned = msg.pinned;
-      if (pin && !pinned) await msg.pin();
-      if (!pin && pinned) await msg.unpin();
+      if (pin && !msg.pinned) await msg.pin();
+      if (!pin && msg.pinned) await msg.unpin();
     } catch {}
   }
-  return msg;
 }
-// 명령에 넘길 유틸
-const utils = { sendStyledNotice, editStyledNoticeById, buildNoticePayload };
 
-// rooms 저장/로드
 function saveRooms() {
   try {
     const plain = Object.fromEntries(rooms);
@@ -141,9 +144,11 @@ function loadRooms() {
   } catch (e) { console.warn("[AriBot] loadRooms fail:", e?.message || e); }
 }
 
-// 모집 UI
 const removeFrom = (arr, id) => { const k = arr.indexOf(id); if (k >= 0) { arr.splice(k,1); return true; } return false; };
 const promoteFromWaitlist = (room) => { while (room.participants.length < room.max && room.waitlist.length) room.participants.push(room.waitlist.shift()); };
+
+const pad = (n)=>String(n).padStart(2,"0");
+const fmtTime = (ts)=> ts ? (()=>{const d=new Date(ts); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;})() : "";
 
 function buildUI(room) {
   const countLine = `현재 인원: **${room.participants.length}/${room.max}**`;
@@ -152,17 +157,9 @@ function buildUI(room) {
   const overflow   = room.participants.slice(showCount);
   const waitAll    = [...overflow, ...room.waitlist];
 
-  const joined = joinedList.length
-    ? joinedList.map((id, idx) => `${idx + 1}. <@${id}>`).join("\n")
-    : "아직 없음";
-
-  const waiting = waitAll.length
-    ? `\n\n⏳ **예비자 (${waitAll.length})**\n` + waitAll.map((id, idx) => `${idx + 1}. <@${id}>`).join("\n")
-    : "";
-
-  const statusLine = (room.closed && room.closedBy)
-    ? `\n\n**🔒 마감됨 — 마감자: <@${room.closedBy}> • ${fmtTime(room.closedAt)}**`
-    : "";
+  const joined = joinedList.length ? joinedList.map((id, idx) => `${idx + 1}. <@${id}>`).join("\n") : "아직 없음";
+  const waiting = waitAll.length ? `\n\n⏳ **예비자 (${waitAll.length})**\n` + waitAll.map((id, idx) => `${idx + 1}. <@${id}>`).join("\n") : "";
+  const statusLine = (room.closed && room.closedBy) ? `\n\n**🔒 마감됨 — 마감자: <@${room.closedBy}> • ${fmtTime(room.closedAt)}**` : "";
 
   const embed = new EmbedBuilder()
     .setTitle(`${room.closed ? "🔒" : "🎯"} ${room.title} - 정원 ${room.max}명`)
@@ -179,11 +176,11 @@ function buildUI(room) {
   return { embed, row };
 }
 
-// ── commands 연결
+// notice-edit 커맨드 주입
 const setupNoticeEdit = require("../commands/notice-edit");
+const utils = { sendStyledNotice, editStyledNoticeById, buildNoticePayload };
 const noticeEditCmd = setupNoticeEdit({ stickyNotices, utils });
 
-// ── ready
 client.once(Events.ClientReady, (c) => {
   console.log("✅ READY as", c.user.tag);
   try { c.user.setActivity("킬내기모집봇 + 공지"); } catch {}
@@ -191,21 +188,19 @@ client.once(Events.ClientReady, (c) => {
   loadRooms();
 });
 
-// ── slash commands
 client.on(Events.InteractionCreate, async (i) => {
   if (!i.isChatInputCommand()) return;
 
-  // notice-edit
   if (i.commandName === "notice-edit") {
     try { return await noticeEditCmd.execute(i); }
     catch (err) {
       console.error("Interaction(notice-edit) error:", err);
-      if (i.deferred || i.replied) return i.followUp({ content: "공지 수정 중 오류가 났어요 ㅠㅠ", ephemeral: true }).catch(()=>{});
-      return i.reply({ content: "공지 수정 중 오류가 났어요 ㅠㅠ", ephemeral: true }).catch(()=>{});
+      return (i.deferred||i.replied)
+        ? i.followUp({ content: "공지 수정 중 오류가 났어요 ㅠㅠ", ephemeral: true }).catch(()=>{})
+        : i.reply({ content: "공지 수정 중 오류가 났어요 ㅠㅠ", ephemeral: true }).catch(()=>{});
     }
   }
 
-  // ari 모집
   if (i.commandName === "ari") {
     const sub = i.options.getSubcommand(false);
     try {
@@ -214,22 +209,14 @@ client.on(Events.InteractionCreate, async (i) => {
         const title = i.options.getString("content", true);
         const max   = i.options.getInteger("max", true);
 
-        const room = {
-          channelId: i.channel.id, hostId: i.user.id,
-          title, max,
-          participants: [], waitlist: [],
-          closed: false, closedBy: null, closedAt: null,
-          messageId: null
-        };
+        const room = { channelId: i.channel.id, hostId: i.user.id, title, max,
+          participants: [], waitlist: [], closed: false, closedBy: null, closedAt: null, messageId: null };
         const ui1  = buildUI(room);
         const msg  = await i.channel.send({ embeds: [ui1.embed], components: [ui1.row] });
         room.messageId = msg.id;
         const ui2 = buildUI(room);
         await msg.edit({ embeds: [ui2.embed], components: [ui2.row] });
-
-        rooms.set(msg.id, room);
-        saveRooms();
-
+        rooms.set(msg.id, room); saveRooms();
         const link = `https://discord.com/channels/${i.guildId}/${i.channelId}/${msg.id}`;
         return i.editReply(`✅ 모집글 생성 완료!\n🆔 \`${msg.id}\`\n🔗 ${link}`);
       }
@@ -258,10 +245,7 @@ client.on(Events.InteractionCreate, async (i) => {
           if (newMax > room.max) { room.max = newMax; promoteFromWaitlist(room); }
           else if (newMax < room.max) {
             room.max = newMax;
-            while (room.participants.length > room.max) {
-              const kicked = room.participants.pop();
-              room.waitlist.unshift(kicked);
-            }
+            while (room.participants.length > room.max) { const k = room.participants.pop(); room.waitlist.unshift(k); }
           }
         }
         const channel = await client.channels.fetch(room.channelId);
@@ -288,10 +272,7 @@ client.on(Events.InteractionCreate, async (i) => {
             try {
               const ch = await client.channels.fetch(room.channelId);
               const msg = await ch.messages.fetch(mid);
-              await msg.delete();
-              rooms.delete(mid);
-              saveRooms();
-              deleted++;
+              await msg.delete(); rooms.delete(mid); saveRooms(); deleted++;
             } catch {}
           }
         }
@@ -301,8 +282,7 @@ client.on(Events.InteractionCreate, async (i) => {
       if (sub === "ping") {
         await i.deferReply({ ephemeral: true });
         const msgId = i.options.getString("message");
-        let room = rooms.get(msgId);
-        if (!room) { loadRooms(); room = rooms.get(msgId); }
+        let room = rooms.get(msgId); if (!room) { loadRooms(); room = rooms.get(msgId); }
         if (!room) return i.editReply("❌ 해당 모집글을 찾을 수 없습니다.");
         const mentions = room.participants.map(id => `<@${id}>`).join(" ");
         await i.channel.send(`📣 **[${room.title}]** 참가자 호출: ${mentions}`);
@@ -312,36 +292,29 @@ client.on(Events.InteractionCreate, async (i) => {
       if (sub === "copy") {
         await i.deferReply({ ephemeral: true });
         const msgId = i.options.getString("message");
-        let room = rooms.get(msgId);
-        if (!room) { loadRooms(); room = rooms.get(msgId); }
+        let room = rooms.get(msgId); if (!room) { loadRooms(); room = rooms.get(msgId); }
         if (!room) return i.editReply("❌ 해당 모집글을 찾을 수 없습니다.");
 
-        const newRoom = {
-          channelId: room.channelId, hostId: i.user.id,
-          title: room.title, max: room.max,
-          participants: [], waitlist: [],
-          closed: false, closedBy: null, closedAt: null,
-          messageId: null
-        };
+        const newRoom = { channelId: room.channelId, hostId: i.user.id, title: room.title, max: room.max,
+          participants: [], waitlist: [], closed: false, closedBy: null, closedAt: null, messageId: null };
         const ui = buildUI(newRoom);
         const msg = await i.channel.send({ embeds: [ui.embed], components: [ui.row] });
         newRoom.messageId = msg.id;
         const ui2 = buildUI(newRoom);
         await msg.edit({ embeds: [ui2.embed], components: [ui2.row] });
-        rooms.set(msg.id, newRoom);
-        saveRooms();
+        rooms.set(msg.id, newRoom); saveRooms();
         return i.editReply(`✅ 모집글 복사 완료! 새 ID: \`${msg.id}\``);
       }
 
       return i.reply({ content: `지원하지 않는 서브커맨드: ${sub}`, ephemeral: true });
     } catch (err) {
       console.error("Interaction(ari) error:", err);
-      if (i.deferred || i.replied) return i.followUp({ content: "오류가 났어요 ㅠㅠ", ephemeral: true }).catch(()=>{});
-      return i.reply({ content: "오류가 났어요 ㅠㅠ", ephemeral: true }).catch(()=>{});
+      return (i.deferred||i.replied)
+        ? i.followUp({ content: "오류가 났어요 ㅠㅠ", ephemeral: true }).catch(()=>{})
+        : i.reply({ content: "오류가 났어요 ㅠㅠ", ephemeral: true }).catch(()=>{});
     }
   }
 
-  // notice (스티키/수정/무한)
   if (i.commandName === "notice") {
     try {
       const channel = i.options.getChannel("channel") || i.channel;
@@ -355,19 +328,19 @@ client.on(Events.InteractionCreate, async (i) => {
 
       const sticky  = i.options.getBoolean("sticky") || false;
       const holdMin = i.options.getInteger("hold") || 0; // 0=무한
-      const edit    = i.options.getBoolean("edit") || false;
+      const editNow = i.options.getBoolean("edit") || false;
 
       const content = normalizeNewlines(raw);
       await i.deferReply({ ephemeral: true });
 
       const prev = stickyNotices.get(channel.id);
 
-      // 수정 모드: 기존 메시지 편집
-      if (sticky && edit && prev?.lastMsgId) {
-        const msg = await editStyledNoticeById(channel, prev.lastMsgId, { style, title, content, pin });
+      // 수정 모드: 기존 스티키 편집
+      if (sticky && editNow && prev?.lastMsgId) {
+        await editStyledNoticeById(channel, prev.lastMsgId, { style, title, content, pin });
         stickyNotices.set(channel.id, {
           style, title, content, pin,
-          lastMsgId: msg.id, lastPostAt: Date.now(),
+          lastMsgId: prev.lastMsgId, lastPostAt: Date.now(),
           expiresAt: holdMin > 0 ? (Date.now() + holdMin * 60 * 1000) : null,
         });
         return i.editReply(`✏️ 스티키 공지를 수정했어요${holdMin>0 ? ` • 유지 ${holdMin}분` : " • 무기한"}.`);
@@ -394,13 +367,14 @@ client.on(Events.InteractionCreate, async (i) => {
       return i.editReply(`✅ 공지를 ${channel}에 보냈어요${pin ? " (핀 유지)" : ""}${sticky ? (holdMin>0 ? ` • 스티키 ${holdMin}분` : " • 스티키(무기한)") : ""}.`);
     } catch (err) {
       console.error("Interaction(notice) error:", err);
-      if (i.deferred || i.replied) return i.followUp({ content: "공지 중 오류가 났어요 ㅠㅠ", ephemeral: true }).catch(()=>{});
-      return i.reply({ content: "공지 중 오류가 났어요 ㅠㅠ", ephemeral: true }).catch(()=>{});
+      return (i.deferred||i.replied)
+        ? i.followUp({ content: "공지 중 오류가 났어요 ㅠㅠ", ephemeral: true }).catch(()=>{})
+        : i.reply({ content: "공지 중 오류가 났어요 ㅠㅠ", ephemeral: true }).catch(()=>{});
     }
   }
 });
 
-// ── 버튼(참가/취소/목록/마감)
+// 버튼
 client.on(Events.InteractionCreate, async (i) => {
   if (!i.isButton()) return;
   try { if (!i.deferred && !i.replied) await i.deferReply({ ephemeral: true }); } catch {}
@@ -412,7 +386,6 @@ client.on(Events.InteractionCreate, async (i) => {
     let room = rooms.get(msgId);
     if (!room) { if (DEBUG) console.log("[button] room miss → reload"); loadRooms(); room = rooms.get(msgId); }
     if (!room) { await i.editReply("이 모집글 정보를 찾을 수 없어요. (봇 재시작 등으로 초기화됨)"); return; }
-
     if (room.closed && action !== "list") { await i.editReply("이미 마감된 모집이에요."); return; }
 
     const uid = i.user.id;
@@ -435,10 +408,7 @@ client.on(Events.InteractionCreate, async (i) => {
       }
     } else if (action === "close") {
       if (!canClose(i)) { await i.editReply("마감 권한이 없어요."); }
-      else {
-        room.closed = true; room.closedBy = i.user.id; room.closedAt = Date.now();
-        changed = true; await i.editReply("🔒 마감했습니다.");
-      }
+      else { room.closed = true; room.closedBy = i.user.id; room.closedAt = Date.now(); changed = true; await i.editReply("🔒 마감했습니다."); }
     } else if (action === "list") {
       const joined  = room.participants.map((id, idx) => `${idx + 1}. <@${id}>`).join("\n") || "없음";
       const waiting = room.waitlist.length ? `\n\n⏳ 예비자\n${room.waitlist.map((id,idx)=>`${idx+1}. <@${id}>`).join("\n")}` : "";
@@ -465,7 +435,7 @@ client.on(Events.InteractionCreate, async (i) => {
   }
 });
 
-// ── 스티키 끌올
+// 스티키 끌올
 client.on(Events.MessageCreate, async (m) => {
   try {
     if (m.author.bot || !m.inGuild()) return;
@@ -477,8 +447,7 @@ client.on(Events.MessageCreate, async (m) => {
         const prev = await m.channel.messages.fetch(st.lastMsgId).catch(()=>null);
         if (prev) await prev.delete().catch(()=>{});
       }
-      stickyNotices.delete(m.channelId);
-      return;
+      stickyNotices.delete(m.channelId); return;
     }
 
     if (STICKY_DEBOUNCE_MS && Date.now() - (st.lastPostAt || 0) < STICKY_DEBOUNCE_MS) return;
@@ -493,7 +462,4 @@ client.on(Events.MessageCreate, async (m) => {
   } catch (e) { console.warn("[AriBot] sticky bump fail:", e?.message || e); }
 });
 
-// ── 실행
-if (!process.env.BOT_TOKEN) { console.error("[AriBot] BOT_TOKEN missing! .env 확인"); process.exit(1); }
-keepAlive();
 client.login(process.env.BOT_TOKEN).catch((e) => console.error("[AriBot] login failed:", e));
