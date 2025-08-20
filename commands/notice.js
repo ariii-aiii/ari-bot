@@ -1,41 +1,60 @@
-// commands/notice.js — 웹후크 없이 노멀 텍스트 공지
+// commands/notice.js — 공지 보내기/스티키
 const { SlashCommandBuilder } = require("discord.js");
 
-// '\n', '\\n', '<br>' → 실제 줄바꿈 처리
-function normalize(text) {
-  return (text || "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\\n/g, "\n")
-    .replace(/<br\s*\/?>/gi, "\n");
-}
+const data = new SlashCommandBuilder()
+  .setName("notice")
+  .setNameLocalizations({ ko: "공지" })
+  .setDescription("Send a notice with optional sticky/pin styles.")
+  .setDescriptionLocalizations({ ko: "공지 보내기 / 스티키 / 핀 고정" })
 
-module.exports = {
-  data: new SlashCommandBuilder()
-    .setName("아리공지")
-    .setDescription("공지 보내기")
-    .addStringOption(o =>
-      o.setName("message")
-        .setDescription("공지 내용 (줄바꿈: \\n 또는 <br>)")
-        .setRequired(true)
-    ),
+  .addStringOption(o =>
+    o.setName("content")
+      .setDescription("Body text (use \\n or <br> for newlines)")
+      .setDescriptionLocalizations({ ko: "본문 (줄바꿈은 \\n 또는 <br>)" })
+      .setRequired(true)
+  )
+  .addStringOption(o =>
+    o.setName("title")
+      .setDescription("Title")
+      .setDescriptionLocalizations({ ko: "제목" })
+      .setRequired(false)
+  )
+  .addStringOption(o =>
+    o.setName("style")
+      .setDescription("Style")
+      .setDescriptionLocalizations({ ko: "스타일" })
+      .addChoices(
+        { name: "embed-purple", value: "embed-purple" },
+        { name: "embed-blue",   value: "embed-blue"   },
+        { name: "embed-min",    value: "embed-min"    },
+        { name: "code",         value: "code"         },
+        { name: "plain",        value: "plain"        },
+      )
+      .setRequired(false)
+  )
+  .addBooleanOption(o =>
+    o.setName("pin")
+      .setDescription("Pin the message")
+      .setDescriptionLocalizations({ ko: "핀 고정" })
+      .setRequired(false)
+  )
+  .addBooleanOption(o =>
+    o.setName("sticky")
+      .setDescription("Keep sticky in channel")
+      .setDescriptionLocalizations({ ko: "스티키 유지" })
+      .setRequired(false)
+  )
+  .addIntegerOption(o =>
+    o.setName("hold")
+      .setDescription("Sticky hold minutes (0 = infinite)")
+      .setDescriptionLocalizations({ ko: "스티키 유지 시간(분) 0=무한" })
+      .setRequired(false)
+  )
+  .addBooleanOption(o =>
+    o.setName("edit")
+      .setDescription("Edit current sticky instead of sending new one")
+      .setDescriptionLocalizations({ ko: "현재 스티키를 수정" })
+      .setRequired(false)
+  );
 
-  async execute(interaction) {
-    try {
-      await interaction.deferReply({ ephemeral: true });
-
-      const raw = interaction.options.getString("message", true);
-      const content = normalize(raw);
-
-      await interaction.channel.send(content);
-
-      await interaction.editReply("✅ 공지를 보냈어요!");
-    } catch (err) {
-      console.error("아리공지 오류:", err);
-      if (interaction.deferred || interaction.replied) {
-        await interaction.editReply("⚠️ 오류가 발생했어요.");
-      } else {
-        await interaction.reply({ content: "⚠️ 오류가 발생했어요.", ephemeral: true });
-      }
-    }
-  }
-};
+module.exports = { data };
