@@ -28,7 +28,7 @@ const notice = new SlashCommandBuilder()
   .addChannelOption(o => o.setName("channel").setDescription("보낼 채널(기본: 현재)").addChannelTypes(ChannelType.GuildText).setRequired(false));
 
 /* ===== /notice-edit ===== */
-const noticeEdit = require("./commands/notice-edit")({ stickyNotices: new Map(), utils: {} }).data; // 스펙만 사용
+const noticeEdit = require("../commands/notice-edit")({ stickyNotices: new Map(), utils: {} }).data; // 스펙만 사용
 
 /* ===== /notice-clear ===== */
 const noticeClear = new SlashCommandBuilder()
