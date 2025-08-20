@@ -1,116 +1,81 @@
-// register.js — 슬래시 커맨드 등록
+// scripts/register.js — 전역 슬래시 명령 등록
 require("dotenv").config();
-const { REST, Routes, SlashCommandBuilder } = require("discord.js");
+const { REST, Routes } = require("discord.js");
 
 if (!process.env.BOT_TOKEN || !process.env.CLIENT_ID) {
-  console.error("BOT_TOKEN/CLIENT_ID 누락"); process.exit(1);
+  console.error("[register] BOT_TOKEN/CLIENT_ID 누락");
+  process.exit(1);
 }
 
-// ───────────────────────── 공지
-const notice = new SlashCommandBuilder()
-  .setName("notice")
-  .setNameLocalizations({ ko: "아리공지" })
-  .setDescription("공지 보내기/스티키/핀 고정")
-  .setDescriptionLocalizations({ ko: "공지 보내기 / 스티키 / 핀 고정" })
-  .addStringOption(o => o.setName("content").setDescription("본문").setDescriptionLocalizations({ko:"공지 본문 (\\n, <br> 줄바꿈 인식)" }).setRequired(true))
-  .addStringOption(o => o.setName("title").setDescription("제목").setDescriptionLocalizations({ko:"제목"}))
-  .addStringOption(o => o.setName("style").setDescription("스타일").setDescriptionLocalizations({ko:"스타일"}).addChoices(
-    { name:"embed-purple", value:"embed-purple" },
-    { name:"embed-blue",   value:"embed-blue"   },
-    { name:"embed-min",    value:"embed-min"    },
-    { name:"code",         value:"code"         },
-    { name:"plain",        value:"plain"        },
-  ))
-  .addBooleanOption(o => o.setName("pin").setDescription("핀 고정").setDescriptionLocalizations({ko:"핀 고정"}))
-  .addBooleanOption(o => o.setName("sticky").setDescription("스티키 유지").setDescriptionLocalizations({ko:"스티키 유지"}))
-  .addIntegerOption(o => o.setName("hold").setDescription("스티키 유지(분) 0=무한").setDescriptionLocalizations({ko:"스티키 유지 시간(분) 0=무한"}))
-  .addBooleanOption(o => o.setName("edit").setDescription("현재 스티키 수정").setDescriptionLocalizations({ko:"현재 스티키를 수정"}));
+const commands = [
+  // /ari
+  {
+    name: "ari",
+    description: "Ari 모집 명령",
+    options: [
+      {
+        type: 1, // SUB_COMMAND
+        name: "create",
+        description: "모집글 만들기",
+        options: [
+          { type: 3, name: "content", description: "제목/내용", required: true },
+          { type: 4, name: "max", description: "정원(숫자)", required: true },
+        ],
+      },
+      {
+        type: 1,
+        name: "edit",
+        description: "모집글 수정",
+        options: [
+          { type: 3, name: "message", description: "메시지 링크/ID", required: false },
+          { type: 3, name: "content", description: "새 제목/내용", required: false },
+          { type: 4, name: "max", description: "새 정원", required: false },
+        ],
+      },
+      { type: 1, name: "status", description: "내 모집글 현황" },
+      { type: 1, name: "delete", description: "내 모집글 모두 삭제" },
+      {
+        type: 1, name: "ping", description: "참가자 멘션",
+        options: [{ type: 3, name: "message", description: "메시지 ID", required: true }],
+      },
+      {
+        type: 1, name: "copy", description: "모집글 복사",
+        options: [{ type: 3, name: "message", description: "메시지 ID", required: true }],
+      },
+    ],
+  },
 
-// 공지 수정(별도)
-const noticeEdit = new SlashCommandBuilder()
-  .setName("notice-edit")
-  .setNameLocalizations({ ko: "아리공지수정" })
-  .setDescription("스티키 공지(또는 지정 메시지) 수정")
-  .setDescriptionLocalizations({ ko: "스티키 공지(또는 지정 메시지)를 수정" })
-  .addStringOption(o => o.setName("content").setDescription("본문").setDescriptionLocalizations({ko:"공지 본문 (\\n, <br> 줄바꿈 인식)"}).setRequired(true))
-  .addStringOption(o => o.setName("message").setDescription("메시지 ID(비우면 현재 스티키)").setDescriptionLocalizations({ko:"메시지 ID (비우면 현재 스티키)"}))
-  .addStringOption(o => o.setName("title").setDescription("제목").setDescriptionLocalizations({ko:"제목"}))
-  .addStringOption(o => o.setName("style").setDescription("스타일").setDescriptionLocalizations({ko:"스타일"}).addChoices(
-    { name:"embed-purple", value:"embed-purple" },
-    { name:"embed-blue",   value:"embed-blue"   },
-    { name:"embed-min",    value:"embed-min"    },
-    { name:"code",         value:"code"         },
-    { name:"plain",        value:"plain"        },
-  ))
-  .addBooleanOption(o => o.setName("pin").setDescription("핀 고정/해제").setDescriptionLocalizations({ko:"핀 고정/해제"}));
+  // /notice
+  {
+    name: "notice",
+    description: "공지 보내기/스티키 설정",
+    options: [
+      { type: 3, name: "content", description: "본문", required: true },
+      { type: 3, name: "title", description: "제목", required: false },
+      { type: 3, name: "style", description: "embed-purple|embed-blue|embed-min|code", required: false },
+      { type: 5, name: "pin", description: "핀 여부", required: false },
+      { type: 5, name: "sticky", description: "스티키 사용", required: false },
+      { type: 4, name: "hold", description: "스티키 유지(분) — 0=무한", required: false },
+      { type: 5, name: "edit", description: "기존 스티키를 수정", required: false },
+      { type: 7, name: "channel", description: "보낼 채널", required: false },
+    ],
+  },
 
-// ───────────────────────── 모집
-const ari = new SlashCommandBuilder()
-  .setName("ari")
-  .setNameLocalizations({ ko: "아리" })
-  .setDescription("모집 명령 모음")
-  .setDescriptionLocalizations({ ko: "모집 명령 모음" })
-
-  // 만들기
-  .addSubcommand(s=>s.setName("create").setNameLocalizations({ko:"만들기"}).setDescription("모집글 생성").setDescriptionLocalizations({ko:"모집글 생성"})
-    .addStringOption(o=>o.setName("content").setNameLocalizations({ko:"내용"}).setDescription("제목/내용").setDescriptionLocalizations({ko:"제목/내용"}).setRequired(true))
-    .addIntegerOption(o=>o.setName("max").setNameLocalizations({ko:"정원"}).setDescription("정원").setDescriptionLocalizations({ko:"정원"}).setRequired(true)
-      .addChoices(
-        {name:"8", value:8},{name:"12", value:12},{name:"16", value:16},
-        {name:"20", value:20},{name:"28", value:28},{name:"32", value:32},
-        {name:"40", value:40},{name:"56", value:56},{name:"60", value:60},
-      )
-    )
-  )
-
-  // 수정
-  .addSubcommand(s=>s.setName("edit").setNameLocalizations({ko:"수정"}).setDescription("모집글 수정").setDescriptionLocalizations({ko:"모집글 수정"})
-    .addStringOption(o=>o.setName("message").setNameLocalizations({ko:"메시지"}).setDescription("메시지ID 또는 링크").setDescriptionLocalizations({ko:"메시지ID 또는 링크"}))
-    .addStringOption(o=>o.setName("content").setNameLocalizations({ko:"내용"}).setDescription("새 제목/내용").setDescriptionLocalizations({ko:"새 제목/내용"}))
-    .addIntegerOption(o=>o.setName("max").setNameLocalizations({ko:"정원"}).setDescription("새 정원").setDescriptionLocalizations({ko:"새 정원"})
-      .addChoices(
-        {name:"8", value:8},{name:"12", value:12},{name:"16", value:16},
-        {name:"20", value:20},{name:"28", value:28},{name:"32", value:32},
-        {name:"40", value:40},{name:"56", value:56},{name:"60", value:60},
-      )
-    )
-  )
-
-  // 현황
-  .addSubcommand(s=>s.setName("status").setNameLocalizations({ko:"현황"}).setDescription("내 모집 현황").setDescriptionLocalizations({ko:"내 모집 현황"}))
-
-  // 모두 삭제
-  .addSubcommand(s=>s.setName("delete").setNameLocalizations({ko:"삭제"}).setDescription("내 모집 모두 삭제").setDescriptionLocalizations({ko:"내 모집 모두 삭제"}))
-
-  // 핑
-  .addSubcommand(s=>s.setName("ping").setNameLocalizations({ko:"핑"}).setDescription("참가자 멘션").setDescriptionLocalizations({ko:"참가자 멘션"})
-    .addStringOption(o=>o.setName("message").setNameLocalizations({ko:"메시지"}).setDescription("메시지ID").setDescriptionLocalizations({ko:"메시지ID"}).setRequired(true))
-  )
-
-  // 복사
-  .addSubcommand(s=>s.setName("copy").setNameLocalizations({ko:"복사"}).setDescription("모집글 복사").setDescriptionLocalizations({ko:"모집글 복사"})
-    .addStringOption(o=>o.setName("message").setNameLocalizations({ko:"메시지"}).setDescription("메시지ID").setDescriptionLocalizations({ko:"메시지ID"}).setRequired(true))
-  );
-
-const commands = [notice.toJSON(), noticeEdit.toJSON(), ari.toJSON()];
+  // /notice-edit
+  {
+    name: "notice-edit",
+    description: "기존 스티키 공지 수정",
+    options: [
+      { type: 3, name: "content", description: "수정할 본문", required: true },
+      { type: 3, name: "title", description: "수정할 제목", required: false },
+      { type: 3, name: "style", description: "embed-purple|embed-blue|embed-min|code", required: false },
+      { type: 5, name: "pin", description: "핀 여부(true/false)", required: false },
+    ],
+  },
+];
 
 (async () => {
   const rest = new REST({ version: "10" }).setToken(process.env.BOT_TOKEN);
-  try {
-    if (process.env.GUILD_ID) {
-      await rest.put(
-        Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
-        { body: commands }
-      );
-      console.log("✅ Guild commands registered");
-    } else {
-      await rest.put(
-        Routes.applicationCommands(process.env.CLIENT_ID),
-        { body: commands }
-      );
-      console.log("✅ Global commands registered");
-    }
-  } catch (e) {
-    console.error("register fail:", e);
-  }
+  await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
+  console.log("✅ Slash commands registered.");
 })();
