@@ -1,18 +1,19 @@
 {
   "name": "ari-bot",
   "version": "1.0.0",
+  "main": "src/index.js",
+  "type": "commonjs",
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "register": "node scripts/register.js"
   },
   "dependencies": {
-    "discord.js": "^14.21.0",
-    "dotenv": "^17.2.1",
-    "express": "^5.1.0"
+    "discord.js": "^14.21.1",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
   },
   "devDependencies": {
-    "nodemon": "^3.1.10"
-  },
-  "engines": { "node": "20.x" }
+    "nodemon": "^3.1.4"
+  }
 }
