@@ -54,7 +54,13 @@ module.exports = function setupNoticeEdit({ stickyNotices, utils }) {
         .addChannelTypes(ChannelType.GuildText)
         .setRequired(false)
     );
-
+// '\n', '\r\n', '<br>' 등을 실제 줄바꿈으로 변환
+  const normalize = (text) =>
+    (text || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\\n/g, "\n")
+      .replace(/<br\s*\/?>/gi, "\n");
+  
   async function execute(i) {
     const channel = i.options.getChannel("channel") || i.channel;
     const msgId   = i.options.getString("message") || stickyNotices.get(channel.id)?.lastMsgId;
