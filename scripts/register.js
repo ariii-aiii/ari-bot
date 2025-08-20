@@ -1,48 +1,29 @@
-// scripts/register.js — 슬래시 커맨드 등록(복붙)
+// scripts/register.js — 슬래시 명령어 등록(한글 전용)
+// 실행:  node scripts/register.js
 require("dotenv").config();
-const { REST, Routes, SlashCommandBuilder } = require("discord.js");
+const { REST, Routes, SlashCommandBuilder, ChannelType } = require("discord.js");
 
 const { BOT_TOKEN, CLIENT_ID, GUILD_ID } = process.env;
 if (!BOT_TOKEN || !CLIENT_ID) {
-  console.error("❌ BOT_TOKEN 또는 CLIENT_ID가 없습니다 (.env 확인)");
+  console.error("❌ BOT_TOKEN 또는 CLIENT_ID가 .env에 없습니다.");
   process.exit(1);
 }
 
-// ───────────────────────────── 공통 선택지 ─────────────────────────────
-const MAX_CHOICES = [
-  { name: "8명",  value: 8 },
-  { name: "12명", value: 12 },
-  { name: "16명", value: 16 },
-  { name: "20명", value: 20 },
-  { name: "28명", value: 28 },
-  { name: "32명", value: 32 },
-  { name: "40명", value: 40 },
-  { name: "56명", value: 56 },
-  { name: "64명", value: 64 },
-];
-
-// ───────────────────────────── 공지(아리공지) ─────────────────────────────
-const notice = new SlashCommandBuilder()
-  .setName("notice") // 영문 고정
-  .setNameLocalizations({ ko: "아리공지" }) // 한국어 표시는 /아리공지
-  .setDescription("Send a notice / sticky / pin")
-  .setDescriptionLocalizations({ ko: "공지 보내기 / 스티키 / 핀 고정" })
+// 공지 보내기(스티키/핀 포함)
+const 아리공지 = new SlashCommandBuilder()
+  .setName("아리공지")
+  .setDescription("공지 보내기 / 스티키 / 핀 고정")
   .addStringOption(o =>
     o.setName("content")
-      .setDescription("Notice body")
-      .setDescriptionLocalizations({ ko: "공지 본문 (줄바꿈: \\n 또는 <br>)" })
+      .setDescription("공지 본문 (줄바꿈은 \\n 또는 <br>)")
       .setRequired(true)
   )
   .addStringOption(o =>
-    o.setName("title")
-      .setDescription("Notice title")
-      .setDescriptionLocalizations({ ko: "공지 제목" })
-      .setRequired(false)
+    o.setName("title").setDescription("제목").setRequired(false)
   )
   .addStringOption(o =>
     o.setName("style")
-      .setDescription("Style")
-      .setDescriptionLocalizations({ ko: "스타일" })
+      .setDescription("스타일 선택")
       .addChoices(
         { name: "embed-purple", value: "embed-purple" },
         { name: "embed-blue",   value: "embed-blue"   },
@@ -53,59 +34,42 @@ const notice = new SlashCommandBuilder()
       .setRequired(false)
   )
   .addBooleanOption(o =>
-    o.setName("pin")
-      .setDescription("Pin on/off")
-      .setDescriptionLocalizations({ ko: "핀 고정/해제" })
-      .setRequired(false)
+    o.setName("pin").setDescription("핀 고정 여부").setRequired(false)
   )
   .addBooleanOption(o =>
-    o.setName("sticky")
-      .setDescription("Keep as sticky")
-      .setDescriptionLocalizations({ ko: "스티키로 유지" })
-      .setRequired(false)
+    o.setName("sticky").setDescription("스티키 공지로 유지").setRequired(false)
   )
   .addIntegerOption(o =>
     o.setName("hold")
-      .setDescription("Sticky hold minutes (0=forever)")
-      .setDescriptionLocalizations({ ko: "스티키 유지 시간(분, 0=무기한)" })
+      .setDescription("스티키 유지 시간(분), 0=무한")
       .setMinValue(0)
+      .setMaxValue(24 * 60)
       .setRequired(false)
   )
   .addBooleanOption(o =>
-    o.setName("edit")
-      .setDescription("Edit current sticky if present")
-      .setDescriptionLocalizations({ ko: "현재 스티키가 있으면 수정" })
-      .setRequired(false)
+    o.setName("edit").setDescription("현재 스티키 공지를 수정 모드로 보냄").setRequired(false)
   );
 
-// (선택) /notice-edit → 한국어 표시는 /아리공지수정
-const noticeEdit = new SlashCommandBuilder()
-  .setName("notice-edit")
-  .setNameLocalizations({ ko: "아리공지수정" })
-  .setDescription("Edit sticky notice or a specified message")
-  .setDescriptionLocalizations({ ko: "스티키 공지(또는 지정 메시지)를 수정" })
+// 공지 수정(특정 메시지ID 또는 현재 스티키)
+const 아리공지수정 = new SlashCommandBuilder()
+  .setName("아리공지수정")
+  .setDescription("스티키 공지(또는 지정 메시지)를 수정")
   .addStringOption(o =>
     o.setName("content")
-      .setDescription("Body")
-      .setDescriptionLocalizations({ ko: "본문 (줄바꿈: \\n 또는 <br>)" })
+      .setDescription("수정할 본문 (줄바꿈은 \\n 또는 <br>)")
       .setRequired(true)
   )
   .addStringOption(o =>
     o.setName("message")
-      .setDescription("Target message ID (blank: current sticky)")
-      .setDescriptionLocalizations({ ko: "대상 메시지 ID (비우면 현재 스티키)" })
+      .setDescription("수정할 메시지 ID (비우면 현재 채널의 스티키)")
       .setRequired(false)
   )
   .addStringOption(o =>
-    o.setName("title")
-      .setDescription("Title")
-      .setDescriptionLocalizations({ ko: "제목" })
-      .setRequired(false)
+    o.setName("title").setDescription("제목").setRequired(false)
   )
   .addStringOption(o =>
     o.setName("style")
-      .setDescription("Style")
-      .setDescriptionLocalizations({ ko: "스타일" })
+      .setDescription("스타일 선택")
       .addChoices(
         { name: "embed-purple", value: "embed-purple" },
         { name: "embed-blue",   value: "embed-blue"   },
@@ -116,109 +80,92 @@ const noticeEdit = new SlashCommandBuilder()
       .setRequired(false)
   )
   .addBooleanOption(o =>
-    o.setName("pin")
-      .setDescription("Pin on/off")
-      .setDescriptionLocalizations({ ko: "핀 고정/해제" })
+    o.setName("pin").setDescription("핀 고정/해제").setRequired(false)
+  )
+  .addChannelOption(o =>
+    o.setName("channel")
+      .setDescription("수정할 채널 (기본: 현재 채널)")
+      .addChannelTypes(ChannelType.GuildText)
       .setRequired(false)
   );
 
-// ───────────────────────────── 모집(아리) ─────────────────────────────
-const ari = new SlashCommandBuilder()
-  .setName("ari")
-  .setDescription("Recruit commands")
-  .setDescriptionLocalizations({ ko: "모집 관련" })
+// 아리 (모집) — 한글 서브커맨드
+const 아리 = new SlashCommandBuilder()
+  .setName("아리")
+  .setDescription("모집 관련 명령어들")
 
-  .addSubcommand(s => s
-    .setName("create")
-    .setNameLocalizations({ ko: "만들기" })
-    .setDescription("Create a recruit")
-    .setDescriptionLocalizations({ ko: "모집글 생성" })
-    .addStringOption(o =>
-      o.setName("content")
-        .setDescription("Title/Content")
-        .setDescriptionLocalizations({ ko: "제목/내용" })
-        .setRequired(true)
-    )
-    .addIntegerOption(o => {
-      const opt = o.setName("max")
-        .setDescription("Max members")
-        .setDescriptionLocalizations({ ko: "정원 선택" })
-        .setRequired(true);
-      MAX_CHOICES.forEach(c => opt.addChoices(c));
-      return opt;
-    })
+  // 만들기
+  .addSubcommand(s =>
+    s.setName("만들기")
+      .setDescription("모집글 생성")
+      .addStringOption(o =>
+        o.setName("content").setDescription("제목/내용").setRequired(true)
+      )
+      .addIntegerOption(o => {
+        const opt = o.setName("max").setDescription("정원").setRequired(true)
+          .setMinValue(2).setMaxValue(120);
+        // 자주 쓰는 정원 프리셋(선택지)
+        [
+          4, 5, 6, 7, 8, 10, 12, 14, 16,
+          18, 20, 24, 30, 40, 50, 60, 80, 100, 120
+        ].forEach(n => opt.addChoices({ name: String(n), value: n }));
+        return opt;
+      })
   )
 
-  .addSubcommand(s => s
-    .setName("edit")
-    .setNameLocalizations({ ko: "수정" })
-    .setDescription("Edit a recruit")
-    .setDescriptionLocalizations({ ko: "모집글 수정" })
-    .addStringOption(o =>
-      o.setName("message")
-        .setDescription("Message ID/Link (optional)")
-        .setDescriptionLocalizations({ ko: "메시지 ID/링크(선택)" })
-        .setRequired(false)
-    )
-    .addStringOption(o =>
-      o.setName("content")
-        .setDescription("New title (optional)")
-        .setDescriptionLocalizations({ ko: "새 제목(선택)" })
-        .setRequired(false)
-    )
-    .addIntegerOption(o => {
-      const opt = o.setName("max")
-        .setDescription("New max (optional)")
-        .setDescriptionLocalizations({ ko: "새 정원(선택)" })
-        .setRequired(false);
-      MAX_CHOICES.forEach(c => opt.addChoices(c));
-      return opt;
-    })
+  // 수정
+  .addSubcommand(s =>
+    s.setName("수정")
+      .setDescription("모집글 수정")
+      .addStringOption(o =>
+        o.setName("message").setDescription("메시지 ID/링크(생략 시 최근 본인 글)").setRequired(false)
+      )
+      .addStringOption(o =>
+        o.setName("content").setDescription("새 제목/내용").setRequired(false)
+      )
+      .addIntegerOption(o => {
+        const opt = o.setName("max").setDescription("새 정원").setRequired(false)
+          .setMinValue(2).setMaxValue(120);
+        [4, 5, 6, 8, 10, 12, 16, 20, 24, 30, 40, 50, 60, 80, 100, 120]
+          .forEach(n => opt.addChoices({ name: String(n), value: n }));
+        return opt;
+      })
   )
 
-  .addSubcommand(s => s
-    .setName("status")
-    .setNameLocalizations({ ko: "현황" })
-    .setDescription("My recruit status")
-    .setDescriptionLocalizations({ ko: "내 모집 현황" })
+  // 현황
+  .addSubcommand(s =>
+    s.setName("현황").setDescription("내 모집 현황")
   )
 
-  .addSubcommand(s => s
-    .setName("delete")
-    .setNameLocalizations({ ko: "삭제" })
-    .setDescription("Delete my recruits")
-    .setDescriptionLocalizations({ ko: "내 모집글 모두 삭제" })
+  // 삭제
+  .addSubcommand(s =>
+    s.setName("삭제").setDescription("내 모집글 모두 삭제")
   )
 
-  .addSubcommand(s => s
-    .setName("ping")
-    .setNameLocalizations({ ko: "핑" })
-    .setDescription("Ping participants")
-    .setDescriptionLocalizations({ ko: "참가자 멘션" })
-    .addStringOption(o =>
-      o.setName("message")
-        .setDescription("Target message ID")
-        .setDescriptionLocalizations({ ko: "대상 메시지 ID" })
-        .setRequired(true)
-    )
+  // 핑
+  .addSubcommand(s =>
+    s.setName("핑")
+      .setDescription("참가자 멘션")
+      .addStringOption(o =>
+        o.setName("message").setDescription("메시지 ID").setRequired(true)
+      )
   )
 
-  .addSubcommand(s => s
-    .setName("copy")
-    .setNameLocalizations({ ko: "복사" })
-    .setDescription("Copy a recruit")
-    .setDescriptionLocalizations({ ko: "모집글 복사" })
-    .addStringOption(o =>
-      o.setName("message")
-        .setDescription("Target message ID")
-        .setDescriptionLocalizations({ ko: "대상 메시지 ID" })
-        .setRequired(true)
-    )
+  // 복사
+  .addSubcommand(s =>
+    s.setName("복사")
+      .setDescription("모집글 복사")
+      .addStringOption(o =>
+        o.setName("message").setDescription("메시지 ID").setRequired(true)
+      )
   );
 
-const commands = [notice, noticeEdit, ari].map(c => c.toJSON());
+const commands = [
+  아리공지.toJSON(),
+  아리공지수정.toJSON(),
+  아리.toJSON(),
+];
 
-// ───────────────────────────── 등록 ─────────────────────────────
 (async () => {
   const rest = new REST({ version: "10" }).setToken(BOT_TOKEN);
   try {
@@ -227,15 +174,16 @@ const commands = [notice, noticeEdit, ari].map(c => c.toJSON());
         Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
         { body: commands }
       );
-      console.log("✅ Guild commands registered");
+      console.log("✅ 길드 명령 등록 완료 (빠르게 반영)");
     } else {
       await rest.put(
         Routes.applicationCommands(CLIENT_ID),
         { body: commands }
       );
-      console.log("✅ Global commands registered");
+      console.log("✅ 전역 명령 등록 완료(전파까지 최대 1시간)");
     }
   } catch (e) {
-    console.error("❌ Register failed:", e?.rawError || e);
+    console.error("❌ 명령 등록 실패:", e);
+    process.exit(1);
   }
 })();
