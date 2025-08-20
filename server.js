@@ -1,14 +1,13 @@
 // server.js
-const express = require("express");
+const express = require('express');
 const app = express();
 
-app.get("/", (req, res) => res.send("OK"));
 const PORT = process.env.PORT || 3000;
 
-function keepAlive() {
-  app.listen(PORT, () => {
-    console.log(`[keepAlive] server running on :${PORT}`);
-  });
-}
+app.get('/', (_req, res) => res.send('OK'));
 
-module.exports = keepAlive; // ✅ 함수 하나만 export
+module.exports = function keepAlive() {
+  app.listen(PORT, () => {
+    console.log(`[keepAlive] listening on ${PORT}`);
+  });
+};
