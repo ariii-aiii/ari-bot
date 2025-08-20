@@ -106,8 +106,8 @@ const 아리 = new SlashCommandBuilder()
           .setMinValue(2).setMaxValue(120);
         // 자주 쓰는 정원 프리셋(선택지)
         [
-          4, 5, 6, 7, 8, 10, 12, 14, 16,
-          18, 20, 24, 30, 40, 50, 60, 80, 100, 120
+          8, 12, 16,
+          20, 28, 32, 40, 56, 60
         ].forEach(n => opt.addChoices({ name: String(n), value: n }));
         return opt;
       })
