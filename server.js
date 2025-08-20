@@ -1,10 +1,16 @@
-// server.js — keepAlive (Render/Replit 둘 다 OK)
+// server.js
 const express = require("express");
 const app = express();
 
-app.get("/", (_, res) => res.send("AriBot OK"));
+app.get("/", (_, res) => res.send("OK")); // 업타임로봇/헬스체크용
 
-const PORT = process.env.PORT || 3000; // 충돌 나면 .env에 포트 바꿔도 됨
-app.listen(PORT, () => console.log("Keep-alive on", PORT));
+const PORT = process.env.PORT || 3000;
 
-module.exports = () => {};
+// 이미 리스닝 중이면 또 켜지지 않도록 가드
+if (!global.__keepAliveServer) {
+  global.__keepAliveServer = app.listen(PORT, () => {
+    console.log("[keepAlive] listening on", PORT);
+  });
+}
+
+module.exports = app; // (원하면 내보내기)
