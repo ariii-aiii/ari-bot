@@ -11,7 +11,7 @@ const fs   = require("fs");
 const path = require("path");
 
 // 핑 방지용 미니 서버
-const keepAlive = require("./server.js");
+const keepAlive = require("../server.js");
 
 // ====== 설정/상수 ======
 const DEBUG = process.env.DEBUG === "true";
@@ -148,7 +148,7 @@ function buildUI(room) {
 }
 
 // ====== commands/notice-edit.js 연결 ======
-const noticeEdit = require("./commands/notice-edit")({
+const noticeEdit = require("../commands/notice-edit")({
   stickyNotices,
   utils: { editStyledNoticeById },
 });
