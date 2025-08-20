@@ -11,25 +11,25 @@ module.exports = function setupNoticeEdit({ stickyNotices, utils }) {
 
   const data = new SlashCommandBuilder()
     .setName("notice-edit")
-    .setNameLocalizations({ ko: "아리공지수정" }) // 공백 금지!
-    .setDescription("현재 채널의 스티키 공지(또는 지정 메시지)를 수정")
+    .setNameLocalizations({ ko: "아리공지수정" }) // 명령어 한글 로컬 이름
+    .setDescription("Edit the sticky notice (or a specific message) in this channel")
     .setDescriptionLocalizations({
-      ko: "현재 채널의 스티키 공지(또는 지정 메시지)를 수정합니다."
+      ko: "현재 채널의 스티키 공지(또는 지정 메시지)를 수정합니다.",
     })
 
     // 🔥 필수 옵션(content)을 제일 먼저!
     .addStringOption((o) =>
       o
         .setName("content")
-        .setDescription("본문 내용 (줄바꿈: \\n 또는 <br>)")
-        .setDescriptionLocalizations({ ko: "공지 본문 내용 (줄바꿈: \\n 또는 <br>)" })
+        .setDescription("Body text (use \\n or <br> for new lines)")
+        .setDescriptionLocalizations({ ko: "본문 내용 (줄바꿈: \\n 또는 <br>)" })
         .setRequired(true)
     )
 
     .addStringOption((o) =>
       o
         .setName("message")
-        .setDescription("메시지 ID(비우면 현재 스티키)")
+        .setDescription("Target message ID (leave empty to edit current sticky)")
         .setDescriptionLocalizations({ ko: "수정할 메시지 ID (비우면 현재 스티키 공지)" })
         .setRequired(false)
     )
@@ -37,22 +37,22 @@ module.exports = function setupNoticeEdit({ stickyNotices, utils }) {
     .addStringOption((o) =>
       o
         .setName("title")
-        .setDescription("제목")
-        .setDescriptionLocalizations({ ko: "공지 제목" })
+        .setDescription("Title (optional)")
+        .setDescriptionLocalizations({ ko: "제목 (선택)" })
         .setRequired(false)
     )
 
     .addStringOption((o) =>
       o
         .setName("style")
-        .setDescription("스타일")
+        .setDescription("Style for the notice")
         .setDescriptionLocalizations({ ko: "공지 스타일 선택" })
         .addChoices(
           { name: "embed-purple", value: "embed-purple" },
           { name: "embed-blue", value: "embed-blue" },
           { name: "embed-min", value: "embed-min" },
           { name: "code", value: "code" },
-          { name: "plain", value: "plain" }
+          { name: "plain", value: "plain" } // ← 일반 텍스트(노멀)도 지원
         )
         .setRequired(false)
     )
@@ -60,23 +60,22 @@ module.exports = function setupNoticeEdit({ stickyNotices, utils }) {
     .addBooleanOption((o) =>
       o
         .setName("pin")
-        .setDescription("핀 고정/해제")
-        .setDescriptionLocalizations({ ko: "공지 핀 고정 또는 해제" })
+        .setDescription("Pin/Unpin the message")
+        .setDescriptionLocalizations({ ko: "핀 고정/해제" })
         .setRequired(false)
     )
 
     .addChannelOption((o) =>
       o
         .setName("channel")
-        .setDescription("수정할 채널(기본: 현재)")
+        .setDescription("Channel to edit (default: current)")
         .setDescriptionLocalizations({ ko: "공지 수정할 채널 (기본: 현재 채널)" })
         .addChannelTypes(ChannelType.GuildText)
         .setRequired(false)
     );
 
   async function execute(i) {
-    const channel =
-      i.options.getChannel("channel") || i.channel;
+    const channel = i.options.getChannel("channel") || i.channel;
 
     const msgId =
       i.options.getString("message") ||
@@ -86,7 +85,7 @@ module.exports = function setupNoticeEdit({ stickyNotices, utils }) {
       return i.reply({
         ephemeral: true,
         content:
-          "수정할 메시지를 못 찾았어요. (메시지 ID를 주거나, 채널에 스티키가 있어야 해요)"
+          "수정할 메시지를 못 찾았어요. (메시지 ID를 주거나, 채널에 스티키가 있어야 해요)",
       });
     }
 
@@ -106,7 +105,7 @@ module.exports = function setupNoticeEdit({ stickyNotices, utils }) {
         style,
         title,
         content,
-        pin
+        pin,
       });
 
       // 채널의 스티키 상태에도 반영
@@ -118,7 +117,7 @@ module.exports = function setupNoticeEdit({ stickyNotices, utils }) {
           title,
           content,
           pin,
-          lastPostAt: Date.now()
+          lastPostAt: Date.now(),
         });
       }
 
