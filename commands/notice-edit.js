@@ -4,7 +4,7 @@ const { SlashCommandBuilder, ChannelType } = require("discord.js");
 module.exports = function setupNoticeEdit({ stickyNotices, utils }) {
   const data = new SlashCommandBuilder()
     .setName("notice-edit")
-    .setNameLocalizations({ ko: "아리공지수정" })   // ✅ 한국어 명령어 이름 추가
+    .setNameLocalizations({ ko: "아리 공지수정" })   // ✅ 한국어 명령어 이름 추가
     .setDescription("현재 채널의 스티키 공지(또는 지정 메시지)를 수정")
     .setDescriptionLocalizations({
       ko: "현재 채널의 스티키 공지(또는 지정 메시지)를 수정합니다."
