@@ -2,11 +2,11 @@
   "name": "ari-bot",
   "version": "1.0.0",
   "type": "commonjs",
-  "main": "index.js",
+  "main": "src/index.js",
   "scripts": {
-    "register": "node register.js",
-    "start": "node index.js",
-    "dev": "nodemon index.js"
+    "register": "node scripts/register.js",
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
   },
   "dependencies": {
     "discord.js": "^14.16.3",
