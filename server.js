@@ -1,4 +1,4 @@
-// server.js — 간단 keepAlive 서버 (Render/무료호스팅용)
+// server.js — 간단 keepAlive(선택)
 const http = require("http");
 const PORT = process.env.PORT || 3000;
 
