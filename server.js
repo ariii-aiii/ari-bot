@@ -1,4 +1,4 @@
-// server.js — 간단 keepAlive(선택)
+// server.js — 간단 keepAlive 서버
 const http = require("http");
 const PORT = process.env.PORT || 3000;
 
@@ -7,7 +7,9 @@ function keepAlive() {
     res.writeHead(200, { "Content-Type": "text/plain" });
     res.end("AriBot alive\n");
   });
-  server.listen(PORT, () => console.log(`[keepAlive] listening on ${PORT}`));
+  server.listen(PORT, () => {
+    console.log(`[keepAlive] listening on ${PORT}`);
+  });
 }
 
 module.exports = keepAlive;
