@@ -1,212 +1,87 @@
-// scripts/register.js — 슬래시 커맨드 등록
+// register.js — 슬래시 커맨드 등록
 require("dotenv").config();
-const { REST, Routes, SlashCommandBuilder } = require("discord.js");
+const { REST, Routes, SlashCommandBuilder, ChannelType } = require("discord.js");
 
 if (!process.env.BOT_TOKEN || !process.env.CLIENT_ID) {
-  console.error("❌ BOT_TOKEN/CLIENT_ID 누락");
-  process.exit(1);
+  console.error("BOT_TOKEN/CLIENT_ID 누락"); process.exit(1);
 }
 
-/* ───────────────── notice (공지) ───────────────── */
+/* ===== /notice ===== */
 const notice = new SlashCommandBuilder()
   .setName("notice")
-  .setNameLocalizations({ ko: "아리공지" }) // 공백 금지!
-  .setDescription("Send a notice (sticky / edit support)")
-  .setDescriptionLocalizations({ ko: "공지 보내기 (스티키/수정 지원)" })
+  .setNameLocalizations({ ko: "아리공지" })
+  .setDescription("공지 보내기 / 스티키 / 핀 고정 / 수정")
+  .setDescriptionLocalizations({ ko: "공지 보내기 / 스티키 / 핀 고정 / 수정" })
+  .addStringOption(o => o.setName("content").setDescription("본문 (\\n, <br>, |, // 줄바꿈 인식)").setDescriptionLocalizations({ ko:"본문 (\\n, <br>, |, // 줄바꿈 인식)" }).setRequired(true))
+  .addStringOption(o => o.setName("title").setDescription("제목").setDescriptionLocalizations({ ko:"제목"}))
+  .addStringOption(o => o.setName("style").setDescription("스타일").setDescriptionLocalizations({ ko:"스타일"}).addChoices(
+    { name:"embed-purple", value:"embed-purple" },
+    { name:"embed-blue",   value:"embed-blue"   },
+    { name:"embed-min",    value:"embed-min"    },
+    { name:"code",         value:"code"         },
+    { name:"plain",        value:"plain"        },
+  ))
+  .addBooleanOption(o => o.setName("pin").setDescription("핀 고정").setDescriptionLocalizations({ ko:"핀 고정"}))
+  .addBooleanOption(o => o.setName("sticky").setDescription("스티키 유지").setDescriptionLocalizations({ ko:"스티키 유지"}))
+  .addIntegerOption(o => o.setName("hold").setDescription("스티키 유지(분) 0=무한").setDescriptionLocalizations({ ko:"스티키 유지(분) 0=무한"}))
+  .addBooleanOption(o => o.setName("edit").setDescription("기존 스티키 '수정' 모드").setDescriptionLocalizations({ ko:"기존 스티키 '수정' 모드"}))
+  .addChannelOption(o => o.setName("channel").setDescription("보낼 채널(기본: 현재)").addChannelTypes(ChannelType.GuildText).setRequired(false));
 
-  // ✅ 필수 옵션(content) 먼저
-  .addStringOption((o) =>
-    o
-      .setName("content")
-      .setDescription("Body text (use \\n or <br> for line breaks)")
-      .setDescriptionLocalizations({
-        ko: "본문 (줄바꿈은 \\n 또는 <br> 사용)",
-      })
-      .setRequired(true)
-  )
+/* ===== /notice-edit ===== */
+const noticeEdit = require("./commands/notice-edit")({ stickyNotices: new Map(), utils: {} }).data; // 스펙만 사용
 
-  .addStringOption((o) =>
-    o
-      .setName("title")
-      .setDescription("Title")
-      .setDescriptionLocalizations({ ko: "제목" })
-      .setRequired(false)
-  )
+/* ===== /notice-clear ===== */
+const noticeClear = new SlashCommandBuilder()
+  .setName("notice-clear")
+  .setNameLocalizations({ ko: "아리공지삭제" })
+  .setDescription("현재 채널의 스티키 공지 삭제")
+  .setDescriptionLocalizations({ ko: "현재 채널의 스티키 공지 삭제" })
+  .addChannelOption(o => o.setName("channel").setDescription("삭제할 채널(기본: 현재)").addChannelTypes(ChannelType.GuildText).setRequired(false));
 
-  .addStringOption((o) =>
-    o
-      .setName("style")
-      .setDescription("Embed style")
-      .setDescriptionLocalizations({ ko: "스타일" })
-      .addChoices(
-        { name: "embed-purple", value: "embed-purple" },
-        { name: "embed-blue", value: "embed-blue" },
-        { name: "embed-min", value: "embed-min" },
-        { name: "code", value: "code" },
-        { name: "plain", value: "plain" }
-      )
-      .setRequired(false)
-  )
-
-  .addBooleanOption((o) =>
-    o
-      .setName("pin")
-      .setDescription("Pin/unpin")
-      .setDescriptionLocalizations({ ko: "핀 고정/해제" })
-      .setRequired(false)
-  )
-
-  .addBooleanOption((o) =>
-    o
-      .setName("sticky")
-      .setDescription("Keep as sticky")
-      .setDescriptionLocalizations({ ko: "스티키로 유지" })
-      .setRequired(false)
-  )
-
-  .addIntegerOption((o) =>
-    o
-      .setName("hold")
-      .setDescription("Sticky duration (minutes). 0 = infinite")
-      .setDescriptionLocalizations({ ko: "스티키 유지(분) 0=무한" })
-      .setMinValue(0)
-      .setRequired(false)
-  )
-
-  .addBooleanOption((o) =>
-    o
-      .setName("edit")
-      .setDescription("Edit current sticky instead of posting new")
-      .setDescriptionLocalizations({ ko: "새로 보내지 않고 현재 스티키 수정" })
-      .setRequired(false)
-  );
-
-/* ───────────── notice-edit (아리공지수정) ─────────────
-   commands/notice-edit.js 에서 data만 끌어다 씀 (execute 불필요) */
-const noticeEditData =
-  require("../commands/notice-edit")({ stickyNotices: new Map(), utils: {} }).data;
-
-/* ────────────────── ari (모집) ────────────────── */
+/* ===== /ari ===== */
 const ari = new SlashCommandBuilder()
   .setName("ari")
   .setNameLocalizations({ ko: "아리" })
-  .setDescription("Recruitment tools")
-  .setDescriptionLocalizations({ ko: "모집 관련 도구" })
+  .setDescription("모집 명령 모음")
+  .setDescriptionLocalizations({ ko: "모집 명령 모음" })
 
-  .addSubcommand((s) =>
-    s
-      .setName("create")
-      .setDescription("Create a room")
-      .setDescriptionLocalizations({ ko: "모집글 생성" })
-      .addStringOption((o) =>
-        o
-          .setName("content")
-          .setDescription("Title/content")
-          .setDescriptionLocalizations({ ko: "제목/내용" })
-          .setRequired(true)
-      )
-      .addIntegerOption((o) =>
-        o
-          .setName("max")
-          .setDescription("Max participants")
-          .setDescriptionLocalizations({ ko: "정원" })
-          .setRequired(true)
-      )
+  .addSubcommand(s=>s.setName("create").setNameLocalizations({ko:"만들기"}).setDescription("모집글 생성").setDescriptionLocalizations({ko:"모집글 생성"})
+    .addStringOption(o=>o.setName("content").setNameLocalizations({ko:"내용"}).setDescription("제목/내용").setDescriptionLocalizations({ko:"제목/내용"}).setRequired(true))
+    .addIntegerOption(o=>o.setName("max").setNameLocalizations({ko:"정원"}).setDescription("정원").setDescriptionLocalizations({ko:"정원"}).setRequired(true).addChoices(
+      {name:"8", value:8},{name:"12", value:12},{name:"16", value:16},
+      {name:"20",value:20},{name:"28", value:28},{name:"32", value:32},
+      {name:"40",value:40},{name:"56", value:56},{name:"60", value:60}
+    ))
   )
-
-  .addSubcommand((s) =>
-    s
-      .setName("edit")
-      .setDescription("Edit a room")
-      .setDescriptionLocalizations({ ko: "모집글 수정" })
-      .addStringOption((o) =>
-        o
-          .setName("message")
-          .setDescription("Message ID/Link")
-          .setDescriptionLocalizations({ ko: "메시지ID/링크" })
-          .setRequired(false)
-      )
-      .addStringOption((o) =>
-        o
-          .setName("content")
-          .setDescription("New title")
-          .setDescriptionLocalizations({ ko: "새 제목" })
-          .setRequired(false)
-      )
-      .addIntegerOption((o) =>
-        o
-          .setName("max")
-          .setDescription("New max")
-          .setDescriptionLocalizations({ ko: "새 정원" })
-          .setRequired(false)
-      )
+  .addSubcommand(s=>s.setName("edit").setNameLocalizations({ko:"수정"}).setDescription("모집글 수정").setDescriptionLocalizations({ko:"모집글 수정"})
+    .addStringOption(o=>o.setName("message").setNameLocalizations({ko:"메시지"}).setDescription("메시지ID/링크(생략 시 최근)").setDescriptionLocalizations({ko:"메시지ID/링크(생략 시 최근)"}))
+    .addStringOption(o=>o.setName("content").setNameLocalizations({ko:"내용"}).setDescription("새 제목/내용").setDescriptionLocalizations({ko:"새 제목/내용"}))
+    .addIntegerOption(o=>o.setName("max").setNameLocalizations({ko:"정원"}).setDescription("새 정원").setDescriptionLocalizations({ko:"새 정원"}).addChoices(
+      {name:"8", value:8},{name:"12", value:12},{name:"16", value:16},
+      {name:"20",value:20},{name:"28", value:28},{name:"32", value:32},
+      {name:"40",value:40},{name:"56", value:56},{name:"60", value:60}
+    ))
   )
+  .addSubcommand(s=>s.setName("status").setNameLocalizations({ko:"현황"}).setDescription("내 모집 현황").setDescriptionLocalizations({ko:"내 모집 현황"}))
+  .addSubcommand(s=>s.setName("delete").setNameLocalizations({ko:"삭제"}).setDescription("내 모집 모두 삭제").setDescriptionLocalizations({ko:"내 모집 모두 삭제"}))
+  .addSubcommand(s=>s.setName("ping").setNameLocalizations({ko:"핑"}).setDescription("참가자 멘션").setDescriptionLocalizations({ko:"참가자 멘션"})
+    .addStringOption(o=>o.setName("message").setNameLocalizations({ko:"메시지"}).setDescription("메시지ID").setDescriptionLocalizations({ko:"메시지ID"}).setRequired(true)))
+  .addSubcommand(s=>s.setName("copy").setNameLocalizations({ko:"복사"}).setDescription("모집글 복사").setDescriptionLocalizations({ko:"모집글 복사"})
+    .addStringOption(o=>o.setName("message").setNameLocalizations({ko:"메시지"}).setDescription("메시지ID").setDescriptionLocalizations({ko:"메시지ID"}).setRequired(true)));
 
-  .addSubcommand((s) =>
-    s
-      .setName("status")
-      .setDescription("My rooms status")
-      .setDescriptionLocalizations({ ko: "내 모집 현황" })
-  )
-
-  .addSubcommand((s) =>
-    s
-      .setName("delete")
-      .setDescription("Delete all my rooms")
-      .setDescriptionLocalizations({ ko: "내 모집 모두 삭제" })
-  )
-
-  .addSubcommand((s) =>
-    s
-      .setName("ping")
-      .setDescription("Ping participants")
-      .setDescriptionLocalizations({ ko: "참가자 멘션" })
-      .addStringOption((o) =>
-        o
-          .setName("message")
-          .setDescription("Message ID")
-          .setDescriptionLocalizations({ ko: "메시지ID" })
-          .setRequired(true)
-      )
-  )
-
-  .addSubcommand((s) =>
-    s
-      .setName("copy")
-      .setDescription("Copy a room")
-      .setDescriptionLocalizations({ ko: "모집글 복사" })
-      .addStringOption((o) =>
-        o
-          .setName("message")
-          .setDescription("Message ID")
-          .setDescriptionLocalizations({ ko: "메시지ID" })
-          .setRequired(true)
-      )
-  );
-
-/* ───────────────── 등록 처리 ───────────────── */
-const commands = [notice.toJSON(), noticeEditData.toJSON(), ari.toJSON()];
+const commands = [notice.toJSON(), noticeEdit.toJSON(), noticeClear.toJSON(), ari.toJSON()];
 
 (async () => {
   const rest = new REST({ version: "10" }).setToken(process.env.BOT_TOKEN);
   try {
     if (process.env.GUILD_ID) {
-      await rest.put(
-        Routes.applicationGuildCommands(
-          process.env.CLIENT_ID,
-          process.env.GUILD_ID
-        ),
-        { body: commands }
-      );
+      await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID), { body: commands });
       console.log("✅ Guild commands registered");
     } else {
-      await rest.put(
-        Routes.applicationCommands(process.env.CLIENT_ID),
-        { body: commands }
-      );
+      await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
       console.log("✅ Global commands registered");
     }
   } catch (e) {
-    console.error("❌ register fail:", e);
+    console.error("register fail:", e);
   }
 })();
