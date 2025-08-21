@@ -1,7 +1,3 @@
-// 모집 관련 확장 기능 자리 (추가 기능 필요 시 여기 작성)
-
-
-
 // commands/recruit.js
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 
@@ -9,73 +5,61 @@ const CAP_CHOICES = [16, 20, 28, 32, 40, 56, 64].map(n => ({ name: String(n), va
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('recruit')
-    .setNameLocalizations({ ko: '아리모집' })
-    .setDescription('Create/manage recruit posts with buttons')
-    .setDescriptionLocalizations({ ko: '버튼 모집 등록/수정/삭제' })
+    .setName('아리모집')
+    .setDescription('버튼 모집 등록/수정/삭제')
 
     .addSubcommand(sub =>
-      sub.setName('create')
-        .setNameLocalizations({ ko: '등록' })
-        .setDescription('Create a recruitment message with buttons')
-        .setDescriptionLocalizations({ ko: '버튼 포함 모집글 등록' })
+      sub.setName('등록')
+        .setDescription('버튼 포함 모집글 등록')
         .addStringOption(o =>
-          o.setName('title').setNameLocalizations({ ko: '제목' })
-            .setDescription('Recruit title').setRequired(true))
+          o.setName('제목')
+            .setDescription('모집글 제목').setRequired(true))
         .addIntegerOption(o =>
-          o.setName('cap').setNameLocalizations({ ko: '정원' })
-            .setDescription('Capacity').addChoices(...CAP_CHOICES).setRequired(true))
+          o.setName('정원')
+            .setDescription('정원 설정').addChoices(...CAP_CHOICES).setRequired(true))
     )
     .addSubcommand(sub =>
-      sub.setName('edit')
-        .setNameLocalizations({ ko: '수정' })
-        .setDescription('Edit title by message ID')
-        .setDescriptionLocalizations({ ko: '메시지ID로 제목 수정' })
+      sub.setName('수정')
+        .setDescription('메시지ID로 제목 수정')
         .addStringOption(o =>
-          o.setName('message_id').setNameLocalizations({ ko: '메시지id' })
-            .setDescription('Target message ID').setRequired(true))
+          o.setName('메시지id')
+            .setDescription('수정할 메시지 ID').setRequired(true))
         .addStringOption(o =>
-          o.setName('title').setNameLocalizations({ ko: '제목' })
-            .setDescription('New title').setRequired(true))
+          o.setName('제목')
+            .setDescription('새 제목').setRequired(true))
     )
     .addSubcommand(sub =>
-      sub.setName('capacity')
-        .setNameLocalizations({ ko: '정원' })
-        .setDescription('Change capacity by message ID')
-        .setDescriptionLocalizations({ ko: '메시지ID로 정원 변경' })
+      sub.setName('정원')
+        .setDescription('메시지ID로 정원 변경')
         .addStringOption(o =>
-          o.setName('message_id').setNameLocalizations({ ko: '메시지id' })
-            .setDescription('Target message ID').setRequired(true))
+          o.setName('메시지id')
+            .setDescription('수정할 메시지 ID').setRequired(true))
         .addIntegerOption(o =>
-          o.setName('cap').setNameLocalizations({ ko: '정원' })
-            .setDescription('New capacity').addChoices(...CAP_CHOICES).setRequired(true))
+          o.setName('정원')
+            .setDescription('새 정원').addChoices(...CAP_CHOICES).setRequired(true))
     )
     .addSubcommand(sub =>
-      sub.setName('status')
-        .setNameLocalizations({ ko: '상태' })
-        .setDescription('Show current status')
-        .setDescriptionLocalizations({ ko: '현재 상태 보기' })
+      sub.setName('상태')
+        .setDescription('현재 모집 상태 보기')
         .addStringOption(o =>
-          o.setName('message_id').setNameLocalizations({ ko: '메시지id' })
-            .setDescription('Target message ID').setRequired(true))
+          o.setName('메시지id')
+            .setDescription('확인할 메시지 ID').setRequired(true))
     )
     .addSubcommand(sub =>
-      sub.setName('delete')
-        .setNameLocalizations({ ko: '삭제' })
-        .setDescription('Delete recruitment by message ID')
-        .setDescriptionLocalizations({ ko: '메시지ID로 모집 삭제' })
+      sub.setName('삭제')
+        .setDescription('메시지ID로 모집 삭제')
         .addStringOption(o =>
-          o.setName('message_id').setNameLocalizations({ ko: '메시지id' })
-            .setDescription('Target message ID').setRequired(true))
+          o.setName('메시지id')
+            .setDescription('삭제할 메시지 ID').setRequired(true))
     ),
 
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
     const { recruitStates, rowFor } = interaction._ari;
 
-    if (sub === 'create') {
-      const title = interaction.options.getString('title', true);
-      const cap = interaction.options.getInteger('cap', true);
+    if (sub === '등록') {
+      const title = interaction.options.getString('제목', true);
+      const cap = interaction.options.getInteger('정원', true);
 
       const embed = new EmbedBuilder()
         .setTitle(title)
@@ -98,9 +82,9 @@ module.exports = {
       return;
     }
 
-    if (sub === 'edit') {
-      const messageId = interaction.options.getString('message_id', true);
-      const newTitle = interaction.options.getString('title', true);
+    if (sub === '수정') {
+      const messageId = interaction.options.getString('메시지id', true);
+      const newTitle = interaction.options.getString('제목', true);
 
       try {
         const msg = await interaction.channel.messages.fetch(messageId);
@@ -117,9 +101,9 @@ module.exports = {
       }
     }
 
-    if (sub === 'capacity') {
-      const messageId = interaction.options.getString('message_id', true);
-      const newCap = interaction.options.getInteger('cap', true);
+    if (sub === '정원') {
+      const messageId = interaction.options.getString('메시지id', true);
+      const newCap = interaction.options.getInteger('정원', true);
 
       try {
         const msg = await interaction.channel.messages.fetch(messageId);
@@ -146,8 +130,8 @@ module.exports = {
       }
     }
 
-    if (sub === 'status') {
-      const messageId = interaction.options.getString('message_id', true);
+    if (sub === '상태') {
+      const messageId = interaction.options.getString('메시지id', true);
       const st = recruitStates.get(messageId);
       if (!st) {
         return interaction.reply({ content: '상태를 못 찾았어요. 해당 메시지 버튼을 한번 눌러주면 복구될 수 있어요.', ephemeral: true });
@@ -164,8 +148,8 @@ module.exports = {
       return interaction.reply({ embeds: [embed], ephemeral: true });
     }
 
-    if (sub === 'delete') {
-      const messageId = interaction.options.getString('message_id', true);
+    if (sub === '삭제') {
+      const messageId = interaction.options.getString('메시지id', true);
       try {
         const msg = await interaction.channel.messages.fetch(messageId);
         await msg.delete();
