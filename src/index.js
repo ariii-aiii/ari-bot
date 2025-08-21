@@ -41,11 +41,12 @@ function buildRecruitEmbed(st) {
   const lock = st.isClosed ? "🔒 " : "";
   const title = `${lock}${st.title} - 정원 ${st.cap}명`;
 
+  // 참가 순서 그대로 보이게 Set → Array (JS Set은 삽입 순서 유지)
   const memberArr = [...st.members];
+
+  // 정원 수만큼 번호 줄 생성 (빈칸도 표시)
   const lines = [];
-  // 정원 수만큼 번호 줄 생성 (빈칸도 그대로)
-  const maxLines = st.cap;
-  for (let i = 1; i <= maxLines; i++) {
+  for (let i = 1; i <= st.cap; i++) {
     const uid = memberArr[i - 1];
     lines.push(`${i}. ${uid ? `<@${uid}>` : ""}`);
   }
@@ -59,6 +60,7 @@ function buildRecruitEmbed(st) {
 
   return new EmbedBuilder().setTitle(title).setDescription(desc);
 }
+
 
 
 // ── 스티키: 실제 재게시 함수
