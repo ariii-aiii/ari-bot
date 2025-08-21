@@ -4,10 +4,11 @@
   "type": "commonjs",
   "main": "src/index.js",
   "scripts": {
-    "register": "node scripts/register.js",
-    "start": "node src/index.js",
-    "dev": "nodemon src/index.js"
-  },
+  "register": "node scripts/register.js",
+  "start": "node src/index.js",
+  "dev": "nodemon src/index.js"
+}
+
   "dependencies": {
     "discord.js": "^14.16.3",
     "dotenv": "^16.4.5",
