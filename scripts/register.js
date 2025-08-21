@@ -1,35 +1,47 @@
-// scripts/register.js
-require('dotenv').config();
-const { REST, Routes } = require('discord.js');
-const fs = require('fs');
-const path = require('path');
+require("dotenv").config();
+const { REST, Routes } = require("discord.js");
 
-const commands = [];
-const commandsPath = path.join(__dirname, '..', 'commands');
-for (const file of fs.readdirSync(commandsPath).filter(f => f.endsWith('.js'))) {
-  const cmd = require(path.join(commandsPath, file));
-  commands.push(cmd.data.toJSON());
-}
+const commands = [
+  {
+    name: "recruit",
+    description: "모집글 만들기",
+  },
+  {
+    name: "notice",
+    description: "공지 등록/수정/삭제",
+    options: [
+      {
+        type: 3,
+        name: "action",
+        description: "공지 작업 (create/update/delete)",
+        required: true,
+        choices: [
+          { name: "등록", value: "create" },
+          { name: "수정", value: "update" },
+          { name: "삭제", value: "delete" }
+        ]
+      },
+      {
+        type: 3,
+        name: "content",
+        description: "공지 내용",
+        required: false
+      }
+    ]
+  }
+];
 
-const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
+const rest = new REST({ version: "10" }).setToken(process.env.BOT_TOKEN);
 
 (async () => {
   try {
-    console.log('🔁 Refreshing (/) commands...');
-    if (process.env.GUILD_ID) {
-      await rest.put(
-        Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
-        { body: commands }
-      );
-      console.log('✅ Guild commands updated.');
-    } else {
-      await rest.put(
-        Routes.applicationCommands(process.env.CLIENT_ID),
-        { body: commands }
-      );
-      console.log('✅ Global commands updated.');
-    }
-  } catch (e) {
-    console.error(e);
+    console.log("⌛ 명령어 등록 중...");
+    await rest.put(
+      Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+      { body: commands }
+    );
+    console.log("✅ 명령어 등록 완료!");
+  } catch (error) {
+    console.error(error);
   }
 })();
