@@ -95,15 +95,43 @@ client.on(Events.InteractionCreate, async (i) => {
       if (!messageId) return;
 
       if (!recruitStates.has(messageId)) {
-        // 최소 복구 시도 (임베드 footer에서 cap/host 추출)
         try {
           const msg = await i.channel.messages.fetch(messageId);
-          const footer = msg.embeds?.[0]?.footer?.text || "";
-          const cap = parseInt((footer.match(/Cap:(\d+)/) || [])[1] || "16", 10);
-          const hostId = (footer.match(/Host:(\d+)/) || [])[1] || i.user.id;
-          recruitStates.set(messageId, { cap, hostId, members: new Set(), waitlist: new Set(), isClosed: false, title: msg.embeds?.[0]?.title || "모집" });
+          const emb = msg.embeds?.[0];
+
+          // 제목에서 잠금/정원/원제목 파싱
+          let cap = 16;
+          let isClosed = false;
+          let baseTitle = "모집";
+          if (emb?.title) {
+            const t = emb.title;
+            isClosed = t.trim().startsWith("🔒");
+            const mCap = t.match(/정원\s+(\d+)/);
+            if (mCap) cap = parseInt(mCap[1], 10);
+            baseTitle = t.replace(/^🔒\s*/, "").replace(/\s*-\s*정원.*$/, "").trim() || "모집";
+          }
+
+          // 본문 번호 리스트에서 참가자 IDs 추출
+          const members = new Set();
+          const desc = emb?.description || "";
+          for (const m of desc.matchAll(/^\s*\d+\.\s*<@(\d+)>/gm)) {
+            members.add(m[1]);
+          }
+
+          recruitStates.set(messageId, {
+            cap,
+            hostId: i.user.id,        // 호스트는 복구 시 호출자 기준으로
+            members,
+            waitlist: new Set(),
+            isClosed,
+            title: baseTitle,
+            closedBy: undefined,
+            closedAt: undefined
+          });
         } catch {}
       }
+
+
 
       const st = recruitStates.get(messageId);
       if (!st) return i.reply({ content: "상태를 찾지 못했어요. 새로 만들어주세요.", ephemeral: true });
