@@ -43,19 +43,23 @@ function buildRecruitEmbed(st) {
 
   const memberArr = [...st.members];
   const lines = [];
-  const maxLines = Math.min(st.cap, 16); // 번호 표시는 16줄까지만
+  // 정원 수만큼 번호 줄 생성 (빈칸도 그대로)
+  const maxLines = st.cap;
   for (let i = 1; i <= maxLines; i++) {
     const uid = memberArr[i - 1];
     lines.push(`${i}. ${uid ? `<@${uid}>` : ""}`);
   }
 
   let desc = `현재 인원: **${memberArr.length}/${st.cap}**\n\n${lines.join("\n")}`;
+
   if (st.isClosed) {
     const when = new Date(st.closedAt || Date.now()).toLocaleString("ko-KR", { hour12: false });
     desc += `\n\n🔒 **마감됨 – 마감자:** <@${st.closedBy || st.hostId}>  ${when}`;
   }
+
   return new EmbedBuilder().setTitle(title).setDescription(desc);
 }
+
 
 // ── 스티키: 실제 재게시 함수
 async function refreshSticky(channel, entry) {
