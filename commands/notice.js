@@ -1,60 +1,66 @@
-const { SlashCommandBuilder, PermissionFlagsBits } = require("discord.js");
-
-let stickyMessageId = null;
+const { SlashCommandBuilder } = require("discord.js");
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName("공지")
-    .setDescription("공지 등록/수정/삭제/스티키")
+    .setName("notice")
+    .setNameLocalizations({ ko: "공지" })
+    .setDescription("Create/Edit/Delete notices")
+    .setDescriptionLocalizations({ ko: "공지 등록/수정/삭제" })
     .addSubcommand(sub =>
-      sub.setName("등록").setDescription("새 공지 작성").addStringOption(opt =>
-        opt.setName("내용").setDescription("공지 내용").setRequired(true)
-      )
+      sub.setName("create").setNameLocalizations({ ko: "등록" })
+        .setDescription("Create a notice").setDescriptionLocalizations({ ko: "공지 등록" })
+        .addStringOption(o => o.setName("content").setNameLocalizations({ ko: "내용" })
+          .setDescription("Notice content").setRequired(true))
+        .addBooleanOption(o => o.setName("pin").setNameLocalizations({ ko: "고정" })
+          .setDescription("Pin this notice"))
     )
     .addSubcommand(sub =>
-      sub.setName("수정").setDescription("공지 수정").addStringOption(opt =>
-        opt.setName("내용").setDescription("수정할 내용").setRequired(true)
-      )
+      sub.setName("edit").setNameLocalizations({ ko: "수정" })
+        .setDescription("Edit a notice by message ID").setDescriptionLocalizations({ ko: "메시지ID로 공지 수정" })
+        .addStringOption(o => o.setName("message_id").setNameLocalizations({ ko: "메시지id" })
+          .setDescription("Target message ID").setRequired(true))
+        .addStringOption(o => o.setName("content").setNameLocalizations({ ko: "내용" })
+          .setDescription("New content").setRequired(true))
     )
     .addSubcommand(sub =>
-      sub.setName("삭제").setDescription("공지 삭제")
-    )
-    .addSubcommand(sub =>
-      sub.setName("스티키").setDescription("공지 스티키 (항상 위로)")
-    )
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+      sub.setName("delete").setNameLocalizations({ ko: "삭제" })
+        .setDescription("Delete a notice by message ID").setDescriptionLocalizations({ ko: "메시지ID로 공지 삭제" })
+        .addStringOption(o => o.setName("message_id").setNameLocalizations({ ko: "메시지id" })
+          .setDescription("Target message ID").setRequired(true))
+    ),
 
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
 
-    if (sub === "등록") {
-      const content = interaction.options.getString("내용");
-      const msg = await interaction.channel.send(`📢 **공지사항**\n${content}`);
-      stickyMessageId = msg.id;
-      await interaction.reply({ content: "✅ 공지 등록 완료!", ephemeral: true });
+    if (sub === "create") {
+      const content = interaction.options.getString("content", true);
+      const pin = interaction.options.getBoolean("pin") || false;
+      const msg = await interaction.channel.send({ content });
+      if (pin) { try { await msg.pin(); } catch {} }
+      return interaction.reply({ content: `✅ 공지 등록 완료 (messageId: ${msg.id})`, ephemeral: true });
     }
 
-    if (sub === "수정") {
-      if (!stickyMessageId) return interaction.reply({ content: "❌ 수정할 공지가 없음", ephemeral: true });
-      const content = interaction.options.getString("내용");
-      const msg = await interaction.channel.messages.fetch(stickyMessageId);
-      await msg.edit(`📢 **공지사항 (수정됨)**\n${content}`);
-      await interaction.reply({ content: "✏️ 공지 수정 완료!", ephemeral: true });
+    if (sub === "edit") {
+      const id = interaction.options.getString("message_id", true);
+      const content = interaction.options.getString("content", true);
+      try {
+        const msg = await interaction.channel.messages.fetch(id);
+        await msg.edit(content);
+        return interaction.reply({ content: "✏️ 공지 수정 완료", ephemeral: true });
+      } catch {
+        return interaction.reply({ content: "메시지ID를 못 찾았어요 ㅠㅠ", ephemeral: true });
+      }
     }
 
-    if (sub === "삭제") {
-      if (!stickyMessageId) return interaction.reply({ content: "❌ 삭제할 공지가 없음", ephemeral: true });
-      const msg = await interaction.channel.messages.fetch(stickyMessageId);
-      await msg.delete();
-      stickyMessageId = null;
-      await interaction.reply({ content: "🗑️ 공지 삭제 완료!", ephemeral: true });
-    }
-
-    if (sub === "스티키") {
-      if (!stickyMessageId) return interaction.reply({ content: "❌ 스티키할 공지가 없음", ephemeral: true });
-      const msg = await interaction.channel.messages.fetch(stickyMessageId);
-      await msg.pin();
-      await interaction.reply({ content: "📌 공지가 스티키됨!", ephemeral: true });
+    if (sub === "delete") {
+      const id = interaction.options.getString("message_id", true);
+      try {
+        const msg = await interaction.channel.messages.fetch(id);
+        await msg.delete();
+        return interaction.reply({ content: "🗑️ 공지 삭제 완료", ephemeral: true });
+      } catch {
+        return interaction.reply({ content: "메시지ID를 못 찾았어요 ㅠㅠ", ephemeral: true });
+      }
     }
   }
 };
