@@ -4,7 +4,7 @@ const { REST, Routes } = require("discord.js");
 const commands = [
   {
     name: "recruit",
-    description: "모집글 만들기",
+    description: "모집글 만들기"
   },
   {
     name: "notice",
