@@ -41,10 +41,7 @@ function buildRecruitEmbed(st) {
   const lock = st.isClosed ? "🔒 " : "";
   const title = `${lock}${st.title} - 정원 ${st.cap}명`;
 
-  // 참가 순서 그대로 보이게 Set → Array (JS Set은 삽입 순서 유지)
-  const memberArr = [...st.members];
-
-  // 정원 수만큼 번호 줄 생성 (빈칸도 표시)
+  const memberArr = [...st.members]; // Set 삽입 순서 = 참가 순서
   const lines = [];
   for (let i = 1; i <= st.cap; i++) {
     const uid = memberArr[i - 1];
@@ -52,7 +49,6 @@ function buildRecruitEmbed(st) {
   }
 
   let desc = `현재 인원: **${memberArr.length}/${st.cap}**\n\n${lines.join("\n")}`;
-
   if (st.isClosed) {
     const when = new Date(st.closedAt || Date.now()).toLocaleString("ko-KR", { hour12: false });
     desc += `\n\n🔒 **마감됨 – 마감자:** <@${st.closedBy || st.hostId}>  ${when}`;
@@ -60,6 +56,7 @@ function buildRecruitEmbed(st) {
 
   return new EmbedBuilder().setTitle(title).setDescription(desc);
 }
+
 
 
 
