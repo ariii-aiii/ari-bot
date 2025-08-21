@@ -1,11 +1,9 @@
 const { SlashCommandBuilder } = require("discord.js");
-
-// 세빈님 고정 인원 선택지
 const CAP_CHOICES = [16, 20, 28, 32, 40, 56, 64].map(n => ({ name: `${n}`, value: n }));
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName("recruit") // 베이스는 영문 소문자만 허용 → 한국어 표시는 name_localizations 사용
+    .setName("recruit")
     .setNameLocalizations({ ko: "모집" })
     .setDescription("Create/manage recruit posts with buttons")
     .setDescriptionLocalizations({ ko: "버튼 모집 등록/관리" })
@@ -29,27 +27,13 @@ module.exports = {
       const title = interaction.options.getString("title", true);
       const cap = interaction.options.getInteger("cap", true);
 
-      // 상태 생성
-      const st = {
-        cap,
-        hostId: interaction.user.id,
-        members: new Set(),
-        waitlist: new Set(),
-        isClosed: false,
-        title
-      };
-
-      // 임베드 + 버튼
+      const st = { cap, hostId: interaction.user.id, members: new Set(), waitlist: new Set(), isClosed: false, title };
       const msg = await interaction.reply({
         embeds: [buildRecruitEmbed(st)],
-        components: [rowFor("temp", false)], // 일단 자리를 채움(아래에서 진짜 messageId로 교체)
+        components: [rowFor("temp", false)],
         fetchReply: true
       });
-
-      // messageId로 버튼 customId 재세팅
       await msg.edit({ components: [rowFor(msg.id, false)] });
-
-      // 상태 저장
       recruitStates.set(msg.id, st);
       return;
     }
