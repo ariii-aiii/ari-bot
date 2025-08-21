@@ -1,9 +1,12 @@
+// commands/recruit.js
 const { SlashCommandBuilder } = require("discord.js");
+
+// 고정 인원 선택지
 const CAP_CHOICES = [16, 20, 28, 32, 40, 56, 64].map(n => ({ name: `${n}`, value: n }));
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName("recruit")
+    .setName("recruit")                 // 베이스는 영문만; 한글 표시는 로컬라이즈로 처리
     .setNameLocalizations({ ko: "모집" })
     .setDescription("Create/manage recruit posts with buttons")
     .setDescriptionLocalizations({ ko: "버튼 모집 등록/관리" })
@@ -27,12 +30,23 @@ module.exports = {
       const title = interaction.options.getString("title", true);
       const cap = interaction.options.getInteger("cap", true);
 
-      const st = { cap, hostId: interaction.user.id, members: new Set(), waitlist: new Set(), isClosed: false, title };
+      // 상태 생성
+      const st = {
+        cap,
+        hostId: interaction.user.id,
+        members: new Set(),
+        waitlist: new Set(),
+        isClosed: false,
+        title
+      };
+
+      // 카드 + 버튼(처음엔 temp, 곧 진짜 ID로 교체)
       const msg = await interaction.reply({
         embeds: [buildRecruitEmbed(st)],
         components: [rowFor("temp", false)],
         fetchReply: true
       });
+
       await msg.edit({ components: [rowFor(msg.id, false)] });
       recruitStates.set(msg.id, st);
       return;
