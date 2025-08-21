@@ -1,3 +1,17 @@
+# node
 node_modules
 .env
 src/rooms.json
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# system files
+.DS_Store
+Thumbs.db
+
+# replit config (optional)
+.replit
