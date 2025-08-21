@@ -1,19 +1,14 @@
 {
-  "name": "ari-bot",
+  "name": "ari-bot-root",
   "version": "1.0.0",
+  "private": true,
   "type": "commonjs",
-  "main": "src/index.js",
   "scripts": {
-    "register": "node scripts/register.js",
-    "start": "node src/index.js",
-    "dev": "nodemon src/index.js"
+    "dev": "node ari-bot/src/index.js",
+    "register": "node ari-bot/scripts/register.js"
   },
   "dependencies": {
-    "discord.js": "^14.16.3",
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2"
-  },
-  "devDependencies": {
-    "nodemon": "^3.1.4"
+    "discord.js": "^14.15.3",
+    "dotenv": "^16.4.5"
   }
 }
