@@ -1,11 +1,18 @@
-// server.js
-const express = require('express');
-const app = express();
+// server.js — keepAlive 미니 서버 (Replit/Render 등에서 슬립 방지)
+const express = require("express");
 
-const PORT = process.env.PORT || 3000;
+let started = false;
 
-app.get('/', (_req, res) => res.send('OK'));
+module.exports = function keepAlive() {
+  if (started) return;
+  const app = express();
 
-app.listen(PORT, () => {
-  console.log(`[keepAlive] listening on ${PORT}`);
-});
+  app.get("/", (_req, res) => res.send("OK"));
+  const port = process.env.PORT || 3000;
+
+  app.listen(port, () => {
+    console.log(`[keepAlive] listening on :${port}`);
+  });
+
+  started = true;
+};
