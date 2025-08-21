@@ -4,12 +4,10 @@ const fs = require("fs");
 const path = require("path");
 
 const commands = [];
-const commandsPath = path.join(__dirname, "../commands");
-const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith(".js"));
-
-for (const file of commandFiles) {
-  const command = require(path.join(commandsPath, file));
-  commands.push(command.data.toJSON());
+const dir = path.join(__dirname, "..", "commands");
+for (const f of fs.readdirSync(dir).filter(x => x.endsWith(".js"))) {
+  const c = require(path.join(dir, f));
+  commands.push(c.data.toJSON());
 }
 
 const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
@@ -22,7 +20,7 @@ const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
       { body: commands }
     );
     console.log("✅ 슬래시 명령어 등록 완료!");
-  } catch (err) {
-    console.error(err);
+  } catch (e) {
+    console.error(e);
   }
 })();
