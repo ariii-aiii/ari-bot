@@ -1,4 +1,3 @@
-// commands/recruit.js
 const { SlashCommandBuilder } = require("discord.js");
 const CAP_CHOICES = [16, 20, 28, 32, 40, 56, 64].map(n => ({ name: `${n}`, value: n }));
 
@@ -11,17 +10,14 @@ module.exports = {
       sub.setName("create").setNameLocalizations({ ko: "시작" })
         .setDescription("Create a recruitment card with buttons")
         .setDescriptionLocalizations({ ko: "모집 카드 만들기(버튼 포함)" })
-        .addStringOption(o => o.setName("title").setNameLocalizations({ ko: "제목" })
-          .setDescription("모집 제목").setRequired(true))
-        .addIntegerOption(o => o.setName("cap").setNameLocalizations({ ko: "인원" })
-          .setDescription("정원 선택").addChoices(...CAP_CHOICES).setRequired(true))
+        .addStringOption(o => o.setName("title").setNameLocalizations({ ko: "제목" }).setDescription("모집 제목").setRequired(true))
+        .addIntegerOption(o => o.setName("cap").setNameLocalizations({ ko: "인원" }).setDescription("정원 선택").addChoices(...CAP_CHOICES).setRequired(true))
     )
     .addSubcommand(sub =>
       sub.setName("refresh").setNameLocalizations({ ko: "리프레시" })
         .setDescription("Re-render recruit card in the new format")
         .setDescriptionLocalizations({ ko: "모집 카드를 새 포맷으로 다시 그리기" })
-        .addStringOption(o => o.setName("message_id").setNameLocalizations({ ko: "메시지id" })
-          .setDescription("대상 모집 메시지 ID").setRequired(true))
+        .addStringOption(o => o.setName("message_id").setNameLocalizations({ ko: "메시지id" }).setDescription("대상 모집 메시지 ID").setRequired(true))
     ),
 
   async execute(interaction) {
@@ -33,7 +29,6 @@ module.exports = {
       const cap = interaction.options.getInteger("cap", true);
 
       const st = { cap, hostId: interaction.user.id, members: new Set(), waitlist: new Set(), isClosed: false, title };
-
       const msg = await interaction.reply({
         embeds: [buildRecruitEmbed(st)],
         components: [rowFor("temp", false)],
@@ -48,18 +43,24 @@ module.exports = {
       const id = interaction.options.getString("message_id", true);
       try {
         const msg = await interaction.channel.messages.fetch(id);
-
         let st = recruitStates.get(id);
+
         if (!st) {
           const emb = msg.embeds?.[0];
-          const titleRaw = emb?.title || "";
-          const cap = parseInt((titleRaw.match(/정원\s+(\d+)/)?.[1] || "16"), 10);
-          const isClosed = titleRaw.trim().startsWith("🔒");
-          const cleanTitle = titleRaw.replace(/^🔒\s*/, "").replace(/\s*-\s*정원.*$/, "") || "모집";
-          st = { cap, hostId: interaction.user.id, members: new Set(), waitlist: new Set(), isClosed, title: cleanTitle };
+          let cap = 16;
+          let isClosed = false;
+          let baseTitle = "모집";
+          if (emb?.title) {
+            const t = emb.title;
+            isClosed = t.trim().startsWith("🔒");
+            const mCap = t.match(/정원\s+(\d+)/);
+            if (mCap) cap = parseInt(mCap[1], 10);
+            baseTitle = t.replace(/^🔒\s*/, "").replace(/\s*-\s*정원.*$/, "").trim() || "모집";
+          }
+          const members = new Set();
           const desc = emb?.description || "";
-          const ids = [...desc.matchAll(/^\s*\d+\.\s*<@(\d+)>/gm)].map(m => m[1]);
-          ids.forEach(uid => st.members.add(uid));
+          for (const m of desc.matchAll(/^\s*\d+\.\s*<@(\d+)>/gm)) members.add(m[1]);
+          st = { cap, hostId: interaction.user.id, members, waitlist: new Set(), isClosed, title: baseTitle };
           recruitStates.set(id, st);
         }
 
