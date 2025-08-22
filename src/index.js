@@ -1,11 +1,15 @@
 // src/index.js 최상단
-require('dotenv').config();     // 이미 넣었으면 유지
-require('../server');           // ← 루트/server.js를 로드(포트 오픈)
-require('./boot-check');        // 이미 쓰는 중이면 유지
+require('dotenv').config();   // .env 로드
+require('../server');         // ← 루트/server.js로 포트 오픈 (Web Service 헬스체크용)
+require('./boot-check');      // ENV 필수값 검사
+
 const {
-  Client, GatewayIntentBits, Collection, Events,
+  Client, GatewayIntentBits, Events,
   ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder
-} = require("discord.js");
+} = require('discord.js');
+
+// 필요하면 나머지 require들 계속...
+
 const fs = require("fs");
 const path = require("path");
 
