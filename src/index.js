@@ -1,6 +1,7 @@
 // src/index.js 최상단
-require("dotenv").config();
-require('./boot-check');
+require('dotenv').config();     // 이미 넣었으면 유지
+require('../server');           // ← 루트/server.js를 로드(포트 오픈)
+require('./boot-check');        // 이미 쓰는 중이면 유지
 const {
   Client, GatewayIntentBits, Collection, Events,
   ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder
@@ -213,5 +214,9 @@ client.once(Events.ClientReady, async (c) => {
 // ✅ 로그인 + 실패 캐치
 client.login(process.env.BOT_TOKEN).catch((err) => {
   console.error('[LOGIN FAIL]', err?.code || err?.message || err);
-  process.exit(1); // Render가 자동 재시작 & 로그 남김
+  process.exit(1); // 로그인 실패만 재시작 유도
 });
+
+process.on('unhandledRejection', e => console.error('[unhandledRejection]', e));
+process.on('uncaughtException', e => console.error('[uncaughtException]', e));
+
