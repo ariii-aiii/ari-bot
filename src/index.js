@@ -1,4 +1,6 @@
+// src/index.js 최상단
 require("dotenv").config();
+require('./boot-check');
 const {
   Client, GatewayIntentBits, Collection, Events,
   ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder
@@ -36,15 +38,24 @@ function rowFor(messageId, isClosed) {
   );
 }
 
-// ── 카드 생성: “현재 인원 + 참여자만 번호 리스트(빈 줄 X)”
+// ── 카드 생성: 참가자 번호 + 예비자 번호
 function buildRecruitEmbed(st) {
   const lock = st.isClosed ? "🔒 " : "";
   const title = `${lock}${st.title} - 정원 ${st.cap}명`;
 
-  const memberArr = [...st.members]; // Set 삽입 순서 = 참가 순서
+  // 참가자 (삽입 순서 = 참가 순서)
+  const memberArr = [...st.members];
   const lines = memberArr.map((uid, i) => `${i + 1}. <@${uid}>`);
+
   let desc = `현재 인원: **${memberArr.length}/${st.cap}**`;
   if (lines.length) desc += `\n\n${lines.join("\n")}`;
+
+  // 예비자(대기열) 표시
+  const waitArr = [...st.waitlist];
+  if (waitArr.length) {
+    const wlines = waitArr.map((uid, i) => `${i + 1}. <@${uid}>`);
+    desc += `\n\n**예비자 (${waitArr.length})**\n\n${wlines.join("\n")}`;
+  }
 
   if (st.isClosed) {
     const when = new Date(st.closedAt || Date.now()).toLocaleString("ko-KR", { hour12: false });
@@ -52,6 +63,7 @@ function buildRecruitEmbed(st) {
   }
   return new EmbedBuilder().setTitle(title).setDescription(desc);
 }
+
 
 // ── 스티키 실재게시
 async function refreshSticky(channel, entry) {
@@ -184,5 +196,22 @@ client.on(Events.InteractionCreate, async (i) => {
   }
 });
 
-client.once(Events.ClientReady, (c) => console.log(`[AriBot] Ready as ${c.user.tag}`));
-client.login(TOKEN);
+// ✅ 봇 준비 완료 로그 + 알림 채널 핑
+client.once(Events.ClientReady, async (c) => {
+  console.log(`[READY] AriBot logged in as ${c.user.tag}`);
+
+  if (process.env.NOTIFY_CHANNEL_ID) {
+    try {
+      const ch = await client.channels.fetch(process.env.NOTIFY_CHANNEL_ID);
+      await ch?.send('✅ 아리봇 부팅 완료! (재배포/토큰 교체 감지)');
+    } catch (err) {
+      console.error('[NOTIFY FAIL]', err);
+    }
+  }
+});
+
+// ✅ 로그인 + 실패 캐치
+client.login(process.env.BOT_TOKEN).catch((err) => {
+  console.error('[LOGIN FAIL]', err?.code || err?.message || err);
+  process.exit(1); // Render가 자동 재시작 & 로그 남김
+});
