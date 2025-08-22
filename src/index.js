@@ -210,6 +210,21 @@ client.once(Events.ClientReady, async (c) => {
     }
   }
 });
+// keep-alive (자기 자신 깨우기)
+function keepAlive() {
+  const url = process.env.RENDER_EXTERNAL_URL || process.env.HEALTH_URL;
+  if (!url) return; // URL 없으면 스킵
+  const https = require('https');
+  setInterval(() => {
+    https.get(url, (res) => {
+      const ok = res.statusCode >= 200 && res.statusCode < 400;
+      console.log(`[keepalive] ${url} -> ${res.statusCode} ${ok ? 'OK' : 'NG'}`);
+      res.resume();
+    }).on('error', (e) => console.error('[keepalive error]', e.message));
+  }, 1000 * 60 * 4); // 4분마다
+}
+keepAlive();
+
 
 // ✅ 로그인 + 실패 캐치
 client.login(process.env.BOT_TOKEN).catch((err) => {
