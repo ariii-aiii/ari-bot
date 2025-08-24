@@ -122,10 +122,22 @@ client.on(Events.MessageCreate, async (msg) => {
 // ========================= 인터랙션(버튼/슬래시) =========================
 client.on(Events.InteractionCreate, async (i) => {
   try {
-    // ── 버튼 처리
+    // ── 버튼 처리 (레거시 customId 호환)
     if (i.isButton()) {
-      const [action, messageId] = i.customId.split(":");
-      if (!messageId) return;
+      let action = i.customId;
+      let messageId = null;
+
+      if (i.customId.includes(':')) {
+        const parts = i.customId.split(':');
+        action = parts[0];
+        messageId = parts[1] || null;
+      }
+      // 구버전 버튼이면 현재 메시지 ID로 보정
+      if (!messageId && i.message) messageId = i.message.id;
+
+      if (!messageId) {
+        return i.reply({ content: '버튼 ID를 확인할 수 없어요. 새로 만들어주세요.', ephemeral: true });
+      }
 
       // 상태 복구: embed 제목/본문만으로 복원
       if (!recruitStates.has(messageId)) {
@@ -154,6 +166,7 @@ client.on(Events.InteractionCreate, async (i) => {
 
       const st = recruitStates.get(messageId);
       if (!st) return i.reply({ content: "상태를 찾지 못했어요. 새로 만들어주세요.", ephemeral: true });
+
       const uid = i.user.id;
 
       if (action === "join") {
@@ -170,7 +183,10 @@ client.on(Events.InteractionCreate, async (i) => {
         }
         try {
           const msg = await i.channel.messages.fetch(messageId);
-          await msg.edit({ embeds: [buildRecruitEmbed(st)] });
+          await msg.edit({
+            embeds: [buildRecruitEmbed(st)],
+            components: [rowFor(messageId, st.isClosed)] // 항상 최신 버튼 세트로 교체
+          });
         } catch {}
         return;
       }
@@ -198,7 +214,10 @@ client.on(Events.InteractionCreate, async (i) => {
         if (changed) {
           try {
             const msg = await i.channel.messages.fetch(messageId);
-            await msg.edit({ embeds: [buildRecruitEmbed(st)] });
+            await msg.edit({
+              embeds: [buildRecruitEmbed(st)],
+              components: [rowFor(messageId, st.isClosed)]
+            });
           } catch {}
         }
         return;
@@ -219,13 +238,14 @@ client.on(Events.InteractionCreate, async (i) => {
           const msg = await i.channel.messages.fetch(messageId);
           await msg.edit({
             embeds: [buildRecruitEmbed(st)],
-            components: [rowFor(messageId, st.isClosed)]
+            components: [rowFor(messageId, st.isClosed)] // 새 customId로 동기화
           });
         } catch {}
         return i.reply({ content: st.isClosed ? "🔒 마감!" : "🔓 재오픈!", ephemeral: true });
       }
 
-      return;
+      // 알 수 없는 action
+      return i.reply({ content: "알 수 없는 버튼이에요.", ephemeral: true });
     }
 
     // ── 슬래시 커맨드
@@ -234,7 +254,7 @@ client.on(Events.InteractionCreate, async (i) => {
       if (!command) return;
       // 유틸 공유 (필요한 커맨드에서 사용)
       i._ari = { recruitStates, rowFor, buildRecruitEmbed, stickyStore, refreshSticky };
-      // 긴 작업 대비: 커맨드 쪽에서 deferReply() 호출하도록 구현했으면 그대로 사용
+      // 각 커맨드 파일에서 필요 시 deferReply() → editReply() 사용
       await command.execute(i);
     }
   } catch (err) {
