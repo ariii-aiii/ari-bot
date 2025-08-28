@@ -60,18 +60,19 @@ module.exports = {
       .setTitle("팀원 모집")
       .setDescription(`${interaction.user} 님이 팀원 모집 중입니다.`)
       .setColor(0xC4B5FD)
-      // ── 1행: 왼쪽(카테고리) / 오른쪽(멤버) ──
       .addFields(
-        { name: "카테고리", value: parentName, inline: true },
-        { name: "멤버", value: memberText, inline: true },
-        { name: "\u200b", value: "\u200b", inline: true }, // 자리맞춤용 스페이서
-        // ── 2행: 왼쪽(채널명)만 ──
+        // 1행: 카테고리(풀폭)
+        { name: "카테고리", value: parentName, inline: false },
+
+        // 2행: 왼쪽 채널명 / 오른쪽 멤버 (둘 다 카테고리 '밑'에 위치)
         { name: "채널명", value: `#${chName}`, inline: true },
-        { name: "\u200b", value: "\u200b", inline: true },
-        { name: "\u200b", value: "\u200b", inline: true },
-        // ── 3행: 설명(풀폭) ──
+        { name: "멤버",   value: memberText,   inline: true },
+        { name: "\u200b", value: "\u200b",     inline: true }, // 줄바꿈용 스페이서
+
+        // 3행: 설명(풀폭)
         { name: "설명", value: desc, inline: false }
       );
+
 
     const btn = new ButtonBuilder()
       .setLabel("음성채널 입장")
