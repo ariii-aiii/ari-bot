@@ -1,6 +1,5 @@
 // src/index.js
 // ─────────────────────────────────────────────────────────────────────────────
-// 부팅 준비: ENV 로드 → 헬스 서버 오픈(Render Web Service 헬스체크) → 필수 ENV 점검
 require('dotenv').config();
 require('../server');          // 루트/server.js (포트 오픈)
 require('./boot-check');       // BOT_TOKEN, CLIENT_ID 등 필수 ENV 확인
@@ -13,28 +12,25 @@ const {
 const fs = require('fs');
 const path = require('path');
 
-// 디스코드 클라이언트
 const client = new Client({
   intents: [
-    GatewayIntentBits.Guilds,          // 슬래시 커맨드/길드 이벤트
-    GatewayIntentBits.GuildMessages    // 메시지 생성(스티키 follow용)
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages
   ]
 });
 
-// ========================= 모집/스티키 상태 =========================
-const recruitStates = new Map(); // 모집 상태
-const stickyStore   = new Map(); // 스티키 상태
+// ========================= 상태 =========================
+const recruitStates = new Map(); // messageId -> 모집 상태
+// channelId -> { enabled, mode:'follow', intervalMs, timer, embed, messageId, debounceTimer }
+const stickyStore   = new Map();
 
 // ========================= 안전 응답 유틸 =========================
 async function safeReply(i, payload) {
   if (i.replied || i.deferred) return i.followUp(payload);
   return i.reply(payload);
 }
-
 async function ensureDeferred(i, opts = { ephemeral: true }) {
-  if (!i.deferred && !i.replied) {
-    await i.deferReply(opts);
-  }
+  if (!i.deferred && !i.replied) await i.deferReply(opts);
 }
 
 // ========================= 권한 체크(마감) =========================
@@ -86,20 +82,39 @@ function buildRecruitEmbed(st) {
   return new EmbedBuilder().setTitle(title).setDescription(desc).setColor(isNaN(colorInt) ? 0xCDC1FF : colorInt);
 }
 
-// ========================= 스티키 갱신 =========================
+// ========================= 스티키 갱신(하나만 유지) =========================
 const stickyRefreshing = new Set();
 
-async function sweepStickyDuplicates(channel, keepId, matchTitle = "📌 공지") {
+// 임베드에 채널고유 마커를 심어 식별
+function markStickyEmbed(channel, baseEmbed) {
+  const marker = `[STICKY:${channel.id}]`;
+  const e = EmbedBuilder.from(baseEmbed);
+  const prevFooter = e.data.footer?.text || "";
+  const text = prevFooter && !prevFooter.includes(marker)
+    ? `${prevFooter} ${marker}` : (prevFooter || marker);
+  e.setFooter({ text });
+  return e;
+}
+
+// 같은 채널에서 같은 마커 가진 봇 임베드 중 최신 1개만 남기고 삭제
+async function sweepStickyDuplicates(channel, keepId) {
   try {
+    const marker = `[STICKY:${channel.id}]`;
     const fetched = await channel.messages.fetch({ limit: 50 });
-    const targets = fetched.filter(m =>
+    // 같은 마커 가진 봇 메시지 모으기
+    const list = fetched.filter(m =>
       m.author?.bot &&
-      m.id !== keepId &&
-      m.embeds?.[0]?.title &&
-      m.embeds[0].title.includes(matchTitle)
+      m.embeds?.[0]?.footer?.text &&
+      m.embeds[0].footer.text.includes(marker)
     );
-    for (const [, m] of targets) {
-      await m.delete().catch(() => {});
+
+    if (list.size <= 1) return;
+
+    // 최신 1개만 남기고 나머지 삭제
+    const sorted = [...list.values()].sort((a,b)=>b.createdTimestamp - a.createdTimestamp);
+    for (const m of sorted) {
+      if (m.id === keepId || m === sorted[0]) continue;
+      await m.delete().catch(()=>{});
     }
   } catch (e) {
     console.error("[sticky sweep error]", e?.message || e);
@@ -112,7 +127,7 @@ async function refreshSticky(channel, entry) {
   stickyRefreshing.add(channel.id);
 
   try {
-    const newEmbed = EmbedBuilder.from(entry.embed);
+    const newEmbed = markStickyEmbed(channel, entry.embed);
 
     if (entry.messageId) {
       try {
@@ -121,7 +136,7 @@ async function refreshSticky(channel, entry) {
         await sweepStickyDuplicates(channel, msg.id);
         return;
       } catch (e) {
-        if (!(e && e.code === 10008)) {
+        if (!(e && e.code === 10008)) { // Unknown Message 제외
           console.error("sticky fetch/edit error:", e?.message || e);
         }
       }
@@ -173,6 +188,7 @@ client.on(Events.MessageCreate, async (msg) => {
 // ========================= 인터랙션(버튼/슬래시) =========================
 client.on(Events.InteractionCreate, async (i) => {
   try {
+    // ── 버튼 처리
     if (i.isButton()) {
       let action = i.customId;
       let messageId = null;
@@ -188,6 +204,7 @@ client.on(Events.InteractionCreate, async (i) => {
         return safeReply(i, { content: '버튼 ID를 확인할 수 없어요. 새로 만들어주세요.', ephemeral: true });
       }
 
+      // 상태 복구
       if (!recruitStates.has(messageId)) {
         try {
           const msg = await i.channel.messages.fetch(messageId);
@@ -349,6 +366,5 @@ client.login(process.env.BOT_TOKEN).catch((err) => {
   process.exit(1);
 });
 
-// 전역 에러 로그
 process.on('unhandledRejection', e => console.error('[unhandledRejection]', e));
 process.on('uncaughtException', e => console.error('[uncaughtException]', e));
