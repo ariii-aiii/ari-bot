@@ -79,15 +79,16 @@ function buildRecruitEmbed(st) {
 const stickyRefreshing = new Set();
 
 // footer에 채널 마커 심기 → 중복 식별
+// footer 완전 제거 버전
 function markStickyEmbed(channel, baseEmbed) {
-  const marker = `[STICKY:${channel.id}]`;
   const e = EmbedBuilder.from(baseEmbed);
-  const prevFooter = e.data.footer?.text || "";
-  const text = prevFooter && !prevFooter.includes(marker)
-    ? `${prevFooter} ${marker}` : (prevFooter || marker);
-  e.setFooter({ text });
+
+  // footer 싹 지우기
+  e.setFooter(null);
+
   return e;
 }
+
 
 // 중복 스티키 정리(마커 없는 옛 공지까지 싹)
 async function sweepStickyDuplicates(channel, keepId) {
