@@ -1,4 +1,4 @@
-// server.js — 헬스 서버(중복 실행 방지 버전)
+// server.js — 헬스 서버 (중복 실행 방지)
 const http = require('http');
 
 if (!globalThis.__HEALTH_SERVER_STARTED__) {
@@ -17,13 +17,13 @@ if (!globalThis.__HEALTH_SERVER_STARTED__) {
   server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
       console.log(`[health] port ${PORT} already in use, skipping health server.`);
-      // 충돌이면 그냥 무시하고 봇은 계속 동작
     } else {
       console.error('[health] unexpected error:', err);
     }
   });
 
-  // 종료 시 정리
   process.on('SIGTERM', () => server.close(() => process.exit(0)));
   process.on('SIGINT', () => server.close(() => process.exit(0)));
 }
+
+module.exports = () => {}; // 그냥 require 시 부팅됨
