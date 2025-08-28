@@ -5,6 +5,7 @@ if (!globalThis.__HEALTH_SERVER_STARTED__) {
   globalThis.__HEALTH_SERVER_STARTED__ = true;
 
   const PORT = Number(process.env.PORT) || 3001;
+
   const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('ok');
@@ -22,8 +23,10 @@ if (!globalThis.__HEALTH_SERVER_STARTED__) {
     }
   });
 
+  // 종료 시 정리
   process.on('SIGTERM', () => server.close(() => process.exit(0)));
   process.on('SIGINT', () => server.close(() => process.exit(0)));
 }
 
-module.exports = () => {}; // 그냥 require 시 부팅됨
+// require만 해도 위에서 실행되므로 export는 의미 없음
+module.exports = () => {};
