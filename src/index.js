@@ -189,7 +189,7 @@ client.on(Events.MessageCreate, async (msg) => {
       if (entry.debounceTimer) clearTimeout(entry.debounceTimer);
       entry.debounceTimer = setTimeout(() => {
         refreshSticky(msg.channel, entry);
-      }, 300); // 연속 트리거 합치기
+      }, 300);
     } catch (e) {
       console.error("[sticky debounce error]", e?.message || e);
     }
