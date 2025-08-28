@@ -17,14 +17,12 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent   // ✅ 메시지 읽기
+    GatewayIntentBits.MessageContent
   ]
 });
 
 // ────────────────────────── 상태 저장소 ──────────────────────────
-/** 모집 상태: messageId -> { cap, hostId, members:Set, waitlist:Set, isClosed, title, closedBy, closedAt } */
 const recruitStates = new Map();
-/** 스티키 상태: channelId -> { enabled, mode:'follow', embed, messageId, debounceTimer } */
 const stickyStore   = new Map();
 
 // ────────────────────────── 유틸 ──────────────────────────
@@ -32,111 +30,57 @@ async function safeReply(i, payload) {
   if (i.replied || i.deferred) return i.followUp(payload);
   return i.reply(payload);
 }
-function canClose(i) {
-  const ids = (process.env.CLOSE_ROLE_IDS || "")
-    .split(",").map(s => s.trim()).filter(Boolean);
-  if (!i.inGuild()) return false;
-  if (ids.length === 0) return true;
-  return i.member?.roles?.cache?.some(r => ids.includes(r.id));
-}
-function rowFor(messageId, isClosed) {
-  return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`join:${messageId}`).setLabel("참가").setStyle(ButtonStyle.Success).setDisabled(isClosed),
-    new ButtonBuilder().setCustomId(`leave:${messageId}`).setLabel("취소").setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(`list:${messageId}`).setLabel("목록").setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(`${isClosed ? "open" : "close"}:${messageId}`)
-      .setLabel(isClosed ? "재오픈" : "마감")
-      .setStyle(isClosed ? ButtonStyle.Secondary : ButtonStyle.Danger)
-  );
-}
-function buildRecruitEmbed(st) {
-  const lock  = st.isClosed ? "🔒 " : "";
-  const title = `${lock}${st.title} - 정원 ${st.cap}명`;
 
-  const memberArr = [...st.members];
-  const lines = memberArr.map((uid, i) => `${i + 1}. <@${uid}>`);
-
-  let desc = `현재 인원: **${memberArr.length}/${st.cap}**`;
-  if (lines.length) desc += `\n\n${lines.join("\n")}`;
-
-  const waitArr = [...st.waitlist];
-  if (waitArr.length) {
-    const wlines = waitArr.map((uid, i) => `${i + 1}. <@${uid}>`);
-    desc += `\n\n**예비자 (${waitArr.length})**\n\n${wlines.join("\n")}`;
-  }
-
-  if (st.isClosed) {
-    const when = new Date(st.closedAt || Date.now()).toLocaleString("ko-KR", { hour12: false });
-    desc += `\n\n🔒 **마감됨 – 마감자:** <@${st.closedBy || st.hostId}>  ${when}`;
-  }
-
-  const colorHex = (process.env.NOTICE_COLOR || "#CDC1FF").replace(/^#/, "");
-  const colorInt = parseInt(colorHex, 16);
-  return new EmbedBuilder().setTitle(title).setDescription(desc).setColor(isNaN(colorInt) ? 0xCDC1FF : colorInt);
-}
-
-// ────────────────────────── 공지(스티키) 로직 ──────────────────────────
-const stickyRefreshing = new Set();
-
-/** embed 가공: footer/타임스탬프 제거(밑줄 싹 삭제) */
+// ────────────────────────── 스티키 로직 ──────────────────────────
 function sanitizeEmbed(baseEmbed) {
   const e = EmbedBuilder.from(baseEmbed);
-  // footer/타임스탬프 전부 제거해서 하단 깔끔하게
   e.setFooter(null);
   e.setTimestamp(null);
   return e;
 }
 
-/** 최근 50개 중 봇이 올린 '공지' 임베드 전부 삭제 */
-async function purgeOldNotices(channel, excludeId = null) {
-  try {
-    const fetched = await channel.messages.fetch({ limit: 50 });
-    const targets = fetched.filter(m =>
-      m.author?.bot &&
-      m.id !== excludeId &&
-      m.embeds?.[0]?.title &&
-      /공지|📢/.test(m.embeds[0].title)
-    );
-    for (const [, msg] of targets) {
-      await msg.delete().catch(() => {});
-    }
-  } catch (e) {
-    console.error("[purgeOldNotices]", e?.message || e);
-  }
-}
-
-/** 스티키 갱신: follow는 '모두 삭제 → 1개만 새로 전송'(맨 아래로) */
 async function refreshSticky(channel, entry) {
   if (!entry) return;
-  if (stickyRefreshing.has(channel.id)) return;
-  stickyRefreshing.add(channel.id);
+  if (entry._lock) return;
 
+  const now = Date.now();
+  const cooldown = entry.cooldownMs ?? 2000;
+  if (entry._lastMove && (now - entry._lastMove) < cooldown) return;
+
+  entry._lock = true;
   try {
     const newEmbed = sanitizeEmbed(entry.embed);
 
-    // 1) follow 모드: 이전 공지 싹 지우고 새로 1개만 생성
+    // follow 모드: 무조건 새로 1개만
     if (entry.mode === "follow") {
-      await purgeOldNotices(channel);
+      if (entry.messageId) {
+        try {
+          const old = await channel.messages.fetch(entry.messageId);
+          await old.delete().catch(() => {});
+        } catch {}
+      }
       const sent = await channel.send({ embeds: [newEmbed] });
       entry.messageId = sent.id;
+      entry._lastMove = Date.now();
       return;
     }
 
-    // 2) 그 외 모드: edit 우선, 없으면 새로 생성
+    // 그 외: edit 우선
     if (entry.messageId) {
       try {
         const msg = await channel.messages.fetch(entry.messageId);
         await msg.edit({ embeds: [newEmbed] });
+        entry._lastMove = Date.now();
         return;
       } catch {}
     }
     const sent = await channel.send({ embeds: [newEmbed] });
     entry.messageId = sent.id;
-
+    entry._lastMove = Date.now();
   } catch (e) {
     console.error("sticky refresh error:", e?.message || e);
   } finally {
-    stickyRefreshing.delete(channel.id);
+    entry._lock = false;
   }
 }
 
@@ -149,7 +93,7 @@ client.on(Events.MessageCreate, async (msg) => {
       if (entry.debounceTimer) clearTimeout(entry.debounceTimer);
       entry.debounceTimer = setTimeout(() => {
         refreshSticky(msg.channel, entry);
-      }, 300); // 연속 입력 디바운스
+      }, 1200); // 1.2초 디바운스
     } catch (e) {
       console.error("[sticky debounce error]", e?.message || e);
     }
@@ -173,25 +117,10 @@ try {
 // ────────────────────────── 인터랙션 ──────────────────────────
 client.on(Events.InteractionCreate, async (i) => {
   try {
-    // 버튼(필요 시 이어서 확장)
-    if (i.isButton()) {
-      let action = i.customId, messageId = null;
-      if (i.customId.includes(':')) {
-        const parts = i.customId.split(':');
-        action = parts[0];
-        messageId = parts[1] || null;
-      }
-      if (!messageId && i.message) messageId = i.message.id;
-      if (!messageId) return safeReply(i, { content: '버튼 ID를 확인할 수 없어요.', ephemeral: true });
-      return;
-    }
-
-    // 슬래시 커맨드
     if (i.isChatInputCommand()) {
       const command = client.commands.get(i.commandName);
       if (!command) return;
-      // notice.js 등 커맨드에서 스티키 접근/갱신할 수 있게 주입
-      i._ari = { recruitStates, rowFor, buildRecruitEmbed, stickyStore, refreshSticky, canClose };
+      i._ari = { stickyStore, refreshSticky };
       await command.execute(i);
     }
   } catch (err) {
