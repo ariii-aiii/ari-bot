@@ -75,99 +75,63 @@ function buildRecruitEmbed(st) {
   return new EmbedBuilder().setTitle(title).setDescription(desc).setColor(isNaN(colorInt) ? 0xCDC1FF : colorInt);
 }
 
-// ────────────────────────── 스티키 로직 ──────────────────────────
+// ────────────────────────── 공지(스티키) 로직 ──────────────────────────
 const stickyRefreshing = new Set();
 
-function markStickyEmbed(channel, baseEmbed) {
+/** embed 가공: footer/타임스탬프 제거(밑줄 싹 삭제) */
+function sanitizeEmbed(baseEmbed) {
   const e = EmbedBuilder.from(baseEmbed);
-
-  // footer 싹 제거
+  // footer/타임스탬프 전부 제거해서 하단 깔끔하게
   e.setFooter(null);
-
-  // 대신 description 맨 끝에만 마커를 넣어둠 (사용자 안 보이게 zero-width space)
-  e.setDescription((e.data.description || "") + "\u200B");
-
+  e.setTimestamp(null);
   return e;
 }
 
-
-
-// 중복 스티키 정리(마커 없는 옛 공지까지 싹)
-async function sweepStickyDuplicates(channel, keepId) {
+/** 최근 50개 중 봇이 올린 '공지' 임베드 전부 삭제 */
+async function purgeOldNotices(channel, excludeId = null) {
   try {
-    const marker = `[STICKY:${channel.id}]`;
     const fetched = await channel.messages.fetch({ limit: 50 });
-
-    // 마커 달린 것
-    const markerList = fetched.filter(m =>
+    const targets = fetched.filter(m =>
       m.author?.bot &&
-      m.embeds?.[0]?.footer?.text &&
-      m.embeds[0].footer.text.includes(marker)
-    );
-
-    // 마커는 없지만 제목이 공지 계열(예전 것들)
-    const legacyList = fetched.filter(m =>
-      m.author?.bot &&
-      m.id !== keepId &&
+      m.id !== excludeId &&
       m.embeds?.[0]?.title &&
       /공지|📢/.test(m.embeds[0].title)
     );
-
-    const all = new Map();
-    for (const m of markerList.values()) all.set(m.id, m);
-    for (const m of legacyList.values()) all.set(m.id, m);
-
-    if (all.size <= 1) return;
-
-    // 최신 하나만 남김 (keepId 우선)
-    const sorted = [...all.values()].sort((a,b)=>b.createdTimestamp - a.createdTimestamp);
-    const winner = sorted.find(m => m.id === keepId) || sorted[0];
-
-    for (const m of sorted) {
-      if (m.id !== winner.id) await m.delete().catch(()=>{});
+    for (const [, msg] of targets) {
+      await msg.delete().catch(() => {});
     }
   } catch (e) {
-    console.error("[sticky sweep error]", e?.message || e);
+    console.error("[purgeOldNotices]", e?.message || e);
   }
 }
 
-// 실제 갱신: follow는 delete+send(아래로 이동), 그 외는 edit
+/** 스티키 갱신: follow는 '모두 삭제 → 1개만 새로 전송'(맨 아래로) */
 async function refreshSticky(channel, entry) {
   if (!entry) return;
   if (stickyRefreshing.has(channel.id)) return;
   stickyRefreshing.add(channel.id);
 
   try {
-    const newEmbed = markStickyEmbed(channel, entry.embed);
+    const newEmbed = sanitizeEmbed(entry.embed);
 
-    // 1) follow 모드: 무조건 삭제→재전송 (맨 아래로)
+    // 1) follow 모드: 이전 공지 싹 지우고 새로 1개만 생성
     if (entry.mode === "follow") {
-      if (entry.messageId) {
-        try {
-          const old = await channel.messages.fetch(entry.messageId);
-          await old.delete().catch(() => {});
-        } catch {}
-      }
+      await purgeOldNotices(channel);
       const sent = await channel.send({ embeds: [newEmbed] });
       entry.messageId = sent.id;
-      await sweepStickyDuplicates(channel, sent.id);
       return;
     }
 
-    // 2) 그 외 모드: edit 우선
+    // 2) 그 외 모드: edit 우선, 없으면 새로 생성
     if (entry.messageId) {
       try {
         const msg = await channel.messages.fetch(entry.messageId);
         await msg.edit({ embeds: [newEmbed] });
-        await sweepStickyDuplicates(channel, msg.id);
         return;
       } catch {}
     }
-
-    // 3) 못 찾았으면 새로 생성
     const sent = await channel.send({ embeds: [newEmbed] });
     entry.messageId = sent.id;
-    await sweepStickyDuplicates(channel, sent.id);
 
   } catch (e) {
     console.error("sticky refresh error:", e?.message || e);
