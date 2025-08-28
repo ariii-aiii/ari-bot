@@ -59,7 +59,7 @@ module.exports = {
     const embed = new EmbedBuilder()
       .setTitle("팀원 모집")
       .setDescription(`${interaction.user} 님이 팀원 모집 중입니다.`)
-      .setColor(0xC4B5FD)
+      .setColor(0xCDC1FF)
       .addFields(
         // 1행: 카테고리(풀폭)
         { name: "카테고리", value: parentName, inline: false },
