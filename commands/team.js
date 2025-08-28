@@ -63,7 +63,7 @@ module.exports = {
         { name: "카테고리", value: parentName, inline: false },
 
         // 2행: 채널명(왼쪽) · 멤버(오른쪽)  ← 둘 다 카테고리 '밑'에 위치
-        { name: "채널명", value: `#${chName}`, inline: true },
+        { name: "채널명", value: `<#${baseCh.id}>`, inline: true },
         { name: "멤버",   value: memberText,   inline: true },
         { name: "\u200b", value: "\u200b",     inline: true }, // 2열 정렬 보정
 
