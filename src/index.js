@@ -78,15 +78,34 @@ function buildRecruitEmbed(st) {
   return new EmbedBuilder().setTitle(title).setDescription(desc).setColor(isNaN(colorInt) ? 0xCDC1FF : colorInt);
 }
 
-// ========================= 스티키 실재 게시 =========================
-// 동시 호출 방지용 채널 잠금
+// ========================= 스티키 갱신(핵심 수정) =========================
+// 동시 호출 방지용 채널 잠금 + 중복 청소기
 const stickyRefreshing = new Set();
+
+/** 최근 50개에서 같은 제목(기본: 📌 공지) 가진 봇 임베드 정리 */
+async function sweepStickyDuplicates(channel, keepId, matchTitle = "📌 공지") {
+  try {
+    const fetched = await channel.messages.fetch({ limit: 50 });
+    const targets = fetched.filter(m =>
+      m.author?.bot &&
+      m.id !== keepId &&
+      m.embeds?.[0]?.title &&
+      m.embeds[0].title.includes(matchTitle)
+    );
+    for (const [, m] of targets) {
+      await m.delete().catch(() => {});
+    }
+  } catch (e) {
+    console.error("[sticky sweep error]", e?.message || e);
+  }
+}
 
 /**
  * 스티키를 "하나만 유지"하도록 업데이트
  * - 기존 메시지가 있으면 edit
  * - 없으면 send 후 messageId 저장
  * - 채널 단위 잠금으로 레이스 컨디션 방지
+ * - 갱신 후 중복 임베드 싹 정리
  */
 async function refreshSticky(channel, entry) {
   if (!entry) return;
@@ -101,10 +120,11 @@ async function refreshSticky(channel, entry) {
     if (entry.messageId) {
       try {
         const msg = await channel.messages.fetch(entry.messageId);
-        await msg.edit({ embeds: [newEmbed] });
-        return; // edit 성공하면 끝
+        await msg.edit({ embeds: [newEmbed] });        // ✅ edit 우선
+        await sweepStickyDuplicates(channel, msg.id);   // ✅ 중복 정리
+        return;
       } catch (e) {
-        // 10008: Unknown Message (지워졌거나 못 찾음) → 새로 생성
+        // 10008 = Unknown Message (지워졌거나 못 찾음) → 새로 생성
         if (!(e && e.code === 10008)) {
           console.error("sticky fetch/edit error:", e?.message || e);
         }
@@ -114,6 +134,7 @@ async function refreshSticky(channel, entry) {
     // 없거나 못 찾았을 때만 새로 생성
     const sent = await channel.send({ embeds: [newEmbed] });
     entry.messageId = sent.id;
+    await sweepStickyDuplicates(channel, sent.id);
 
   } catch (e2) {
     console.error("sticky refresh error:", e2?.message || e2);
@@ -304,7 +325,7 @@ client.on(Events.InteractionCreate, async (i) => {
 
 // ========================= READY 로그/알림 =========================
 client.once(Events.ClientReady, async (c) => {
-  console.log(`[READY] AriBot logged in as ${c.user.tag}`);
+  console.log(`[READY] AriBot logged in as ${c.user.tag} pid=${process.pid} inst=${process.env.RENDER_INSTANCE_ID || 'local'}`);
 
   if (process.env.NOTIFY_CHANNEL_ID) {
     try {
