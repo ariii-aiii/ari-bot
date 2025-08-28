@@ -1,10 +1,9 @@
 // src/index.js
 // ─────────────────────────────────────────────────────────────
-// 부팅 준비: ENV 로드 → 헬스 서버 실행(Render 헬스체크) → 필수 ENV 확인
+// 부팅 준비: ENV 로드 → 헬스 서버 require(즉시 실행) → 필수 ENV 점검
 require('dotenv').config();
-const startHealthServer = require('../server'); // server.js export 함수
-startHealthServer();                             // 헬스 서버 실행
-require('./boot-check');                        // BOT_TOKEN 등 필수 ENV 확인
+require('../server');           // server.js가 자체 실행(중복 방지 포함)
+require('./boot-check');        // BOT_TOKEN 등 필수 ENV 확인
 // ─────────────────────────────────────────────────────────────
 
 const {
@@ -23,7 +22,9 @@ const client = new Client({
 });
 
 // ───────────────────────────── 상태 저장소 ─────────────────────────────
+/** 모집 상태: messageId -> { cap, hostId, members:Set, waitlist:Set, isClosed, title, closedBy, closedAt } */
 const recruitStates = new Map();
+/** 스티키 상태: channelId -> { enabled, mode:'follow', embed, messageId, debounceTimer } */
 const stickyStore   = new Map();
 
 // ───────────────────────────── 공용 유틸 ─────────────────────────────
@@ -77,6 +78,7 @@ function buildRecruitEmbed(st) {
 // ─────────────────────── 스티키(하나만 유지) 로직 ───────────────────────
 const stickyRefreshing = new Set();
 
+// 채널 고유 마커(footer)에 [STICKY:<channelId>] 심기
 function markStickyEmbed(channel, baseEmbed) {
   const marker = `[STICKY:${channel.id}]`;
   const e = EmbedBuilder.from(baseEmbed);
@@ -86,6 +88,8 @@ function markStickyEmbed(channel, baseEmbed) {
   e.setFooter({ text });
   return e;
 }
+
+// 채널 내 같은 마커 가진 봇 임베드 중 최신 1개만 남기고 삭제
 async function sweepStickyDuplicates(channel, keepId) {
   try {
     const marker = `[STICKY:${channel.id}]`;
@@ -103,6 +107,8 @@ async function sweepStickyDuplicates(channel, keepId) {
     }
   } catch (e) { console.error("[sticky sweep error]", e?.message || e); }
 }
+
+// 채널에서 최신 스티키(마커 포함) 하나 찾아 채택
 async function findExistingSticky(channel) {
   const marker = `[STICKY:${channel.id}]`;
   try {
@@ -116,6 +122,8 @@ async function findExistingSticky(channel) {
     return [...list.values()].sort((a,b)=>b.createdTimestamp - a.createdTimestamp)[0];
   } catch { return null; }
 }
+
+// 실제 갱신: edit 우선, 없거나 못 찾으면 send, 이후 스윕
 async function refreshSticky(channel, entry) {
   if (!entry) return;
   if (stickyRefreshing.has(channel.id)) return;
@@ -124,6 +132,7 @@ async function refreshSticky(channel, entry) {
   try {
     const newEmbed = markStickyEmbed(channel, entry.embed);
 
+    // 1) id 있으면 edit
     if (entry.messageId) {
       try {
         const msg = await channel.messages.fetch(entry.messageId);
@@ -135,6 +144,7 @@ async function refreshSticky(channel, entry) {
       }
     }
 
+    // 2) id 없거나 실패 → 기존 스티키 채택
     const existing = await findExistingSticky(channel);
     if (existing) {
       entry.messageId = existing.id;
@@ -143,6 +153,7 @@ async function refreshSticky(channel, entry) {
       return;
     }
 
+    // 3) 진짜 없을 때만 새로 생성
     const sent = await channel.send({ embeds: [newEmbed] });
     entry.messageId = sent.id;
     await sweepStickyDuplicates(channel, sent.id);
@@ -177,7 +188,7 @@ client.on(Events.MessageCreate, async (msg) => {
       if (entry.debounceTimer) clearTimeout(entry.debounceTimer);
       entry.debounceTimer = setTimeout(() => {
         refreshSticky(msg.channel, entry);
-      }, 300);
+      }, 300); // 연속 트리거 합치기
     } catch (e) {
       console.error("[sticky debounce error]", e?.message || e);
     }
@@ -187,6 +198,7 @@ client.on(Events.MessageCreate, async (msg) => {
 // ───────────────────── 인터랙션(버튼/슬래시) ─────────────────────
 client.on(Events.InteractionCreate, async (i) => {
   try {
+    // ─ 버튼
     if (i.isButton()) {
       let action = i.customId, messageId = null;
       if (i.customId.includes(':')) {
@@ -197,9 +209,11 @@ client.on(Events.InteractionCreate, async (i) => {
       if (!messageId && i.message) messageId = i.message.id;
       if (!messageId) return safeReply(i, { content: '버튼 ID를 확인할 수 없어요.', ephemeral: true });
 
-      // 상태 복구 … (중략: 기존 로직 그대로 유지)
+      // (필요 시 기존 모집 상태 복구 로직 여기에…)
+      return; // ← 세빈님 로직 맞춰서 이어쓰세요
     }
 
+    // ─ 슬래시 커맨드
     if (i.isChatInputCommand()) {
       const command = client.commands.get(i.commandName);
       if (!command) return;
@@ -215,7 +229,7 @@ client.on(Events.InteractionCreate, async (i) => {
   }
 });
 
-// ─────────────────────────── READY 로그 ───────────────────────────
+// ─────────────────────────── READY 로그/알림 ───────────────────────────
 client.once(Events.ClientReady, async (c) => {
   console.log(`[READY] AriBot logged in as ${c.user.tag} pid=${process.pid} inst=${process.env.RENDER_INSTANCE_ID || 'local'}`);
 });
