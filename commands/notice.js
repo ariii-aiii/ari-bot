@@ -1,4 +1,3 @@
-// commands/notice.js
 const { SlashCommandBuilder, EmbedBuilder, resolveColor, PermissionFlagsBits } = require("discord.js");
 
 const DEFAULT_HEX = "#CDC1FF";
@@ -29,7 +28,6 @@ module.exports = {
     .setDescription("Create/Edit/Delete notices (with sticky option)")
     .setDescriptionLocalizations({ ko: "공지 등록/수정/삭제 (스티키 옵션 포함)" })
 
-    // 등록(+스티키 옵션)
     .addSubcommand(sub =>
       sub.setName("create").setNameLocalizations({ ko: "등록" })
         .setDescription("Create a notice").setDescriptionLocalizations({ ko: "공지 등록" })
@@ -38,17 +36,15 @@ module.exports = {
         .addStringOption(o => o.setName("title").setNameLocalizations({ ko: "제목" })
           .setDescription("제목(선택)"))
         .addStringOption(o => o.setName("color").setNameLocalizations({ ko: "컬러" })
-          .setDescription("색상: 이름(pink, sky...) 또는 HEX(#CDC1FF 기본)"))
+          .setDescription("색상"))
         .addBooleanOption(o => o.setName("sticky").setNameLocalizations({ ko: "스티키" })
-          .setDescription("맨 아래에 계속 붙이기 (기본: 켜짐)"))
+          .setDescription("맨 아래 고정 (기본: 켜짐)"))
     )
-
-    // 수정
     .addSubcommand(sub =>
       sub.setName("edit").setNameLocalizations({ ko: "수정" })
         .setDescription("Edit a notice").setDescriptionLocalizations({ ko: "공지 수정" })
         .addStringOption(o => o.setName("message_id").setNameLocalizations({ ko: "메시지id" })
-          .setDescription("수정할 공지 메시지 ID (미입력 시 마지막 공지)").setRequired(false))
+          .setDescription("수정할 공지 메시지 ID").setRequired(false))
         .addStringOption(o => o.setName("content").setNameLocalizations({ ko: "내용" })
           .setDescription("새 내용").setRequired(false))
         .addStringOption(o => o.setName("title").setNameLocalizations({ ko: "제목" })
@@ -56,21 +52,17 @@ module.exports = {
         .addStringOption(o => o.setName("color").setNameLocalizations({ ko: "컬러" })
           .setDescription("새 컬러").setRequired(false))
     )
-
-    // 삭제
     .addSubcommand(sub =>
       sub.setName("delete").setNameLocalizations({ ko: "삭제" })
         .setDescription("Delete a notice").setDescriptionLocalizations({ ko: "공지 삭제" })
         .addStringOption(o => o.setName("message_id").setNameLocalizations({ ko: "메시지id" })
-          .setDescription("삭제할 공지 메시지 ID (미입력 시 마지막 공지)").setRequired(false))
+          .setDescription("삭제할 공지 메시지 ID").setRequired(false))
     )
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
     const channel = interaction.channel;
-
-    // index.js에서 주입한 유틸들
     const { stickyStore, refreshSticky } = interaction._ari;
 
     const getTargetMessage = async () => {
@@ -79,30 +71,28 @@ module.exports = {
       return channel.messages.fetch(id);
     };
 
-    // ───────── 등록
+    // 등록
     if (sub === "create") {
-      const content  = interaction.options.getString("content", true);
-      const title    = interaction.options.getString("title") || "📢 공지";
+      const content = interaction.options.getString("content", true);
+      const title = interaction.options.getString("title") || "📢 공지";
       const colorStr = interaction.options.getString("color");
-      const stickyOn = interaction.options.getBoolean("sticky") ?? true; // 기본 켜짐
+      const stickyOn = interaction.options.getBoolean("sticky") ?? true;
 
-      // 푸터/타임스탬프 없이 깔끔하게
       const embed = new EmbedBuilder()
-        .setTitle(title)
-        .setDescription(content)
+        .setTitle(title).setDescription(content)
         .setColor(parseColor(colorStr));
 
       if (stickyOn) {
-        // 스티키 등록: index.js의 refreshSticky가 "이전 공지 싹 삭제 → 새 공지 1개" 처리
         let entry = stickyStore.get(channel.id);
         if (entry?.timer) clearInterval(entry.timer);
         entry = {
           enabled: true,
           mode: "follow",
-          intervalMs: 0,
-          timer: null,
           embed: embed.toJSON(),
-          messageId: lastNoticeByChannel.get(channel.id) || null
+          messageId: lastNoticeByChannel.get(channel.id) || null,
+          cooldownMs: 2000,
+          _lock: false,
+          _lastMove: 0
         };
         stickyStore.set(channel.id, entry);
         await refreshSticky(channel, entry);
@@ -111,50 +101,42 @@ module.exports = {
       } else {
         const msg = await channel.send({ embeds: [embed] });
         lastNoticeByChannel.set(channel.id, msg.id);
-        return interaction.reply({ content: `✅ 공지 등록! (messageId: ${msg.id})`, ephemeral: true });
+        return interaction.reply({ content: `✅ 공지 등록! (ID: ${msg.id})`, ephemeral: true });
       }
     }
 
-    // ───────── 수정
+    // 수정
     if (sub === "edit") {
       const newContent = interaction.options.getString("content");
-      const newTitle   = interaction.options.getString("title");
-      const newColor   = interaction.options.getString("color");
+      const newTitle = interaction.options.getString("title");
+      const newColor = interaction.options.getString("color");
 
-      if (newContent == null && newTitle == null && newColor == null) {
-        return interaction.reply({ content: "바꿀 항목이 없어요. (내용/제목/컬러 중 1개 이상)", ephemeral: true });
+      if (!newContent && !newTitle && !newColor) {
+        return interaction.reply({ content: "수정할 항목이 없어요.", ephemeral: true });
       }
 
       try {
         const msg = await getTargetMessage();
         const embed = EmbedBuilder.from(msg.embeds?.[0] || new EmbedBuilder());
-
-        // 제목/내용/색만 유지 (푸터/시간은 사용 안 함)
-        if (newTitle   != null) embed.setTitle(newTitle || null);
-        if (newContent != null) embed.setDescription(newContent || null);
-        if (newColor   != null) embed.setColor(parseColor(newColor));
-        // 안전하게 제거(혹시 기존 메시지에 남아있을 수도 있으니)
-        embed.setFooter(null);
-        embed.setTimestamp(null);
-
+        if (newTitle != null) embed.setTitle(newTitle);
+        if (newContent != null) embed.setDescription(newContent);
+        if (newColor != null) embed.setColor(parseColor(newColor));
         await msg.edit({ embeds: [embed] });
 
-        // 스티키 켜져 있으면 최신 내용으로 재배치
         const sticky = stickyStore.get(channel.id);
         if (sticky?.enabled) {
           sticky.embed = embed.toJSON();
           sticky.messageId = msg.id;
           await refreshSticky(channel, sticky);
         }
-
         lastNoticeByChannel.set(channel.id, msg.id);
         return interaction.reply({ content: "✏️ 공지 수정 완료!", ephemeral: true });
       } catch {
-        return interaction.reply({ content: "❌ 공지 메시지를 찾지 못했어요.", ephemeral: true });
+        return interaction.reply({ content: "❌ 공지를 찾지 못했어요.", ephemeral: true });
       }
     }
 
-    // ───────── 삭제
+    // 삭제
     if (sub === "delete") {
       try {
         const msg = await getTargetMessage();
@@ -162,7 +144,7 @@ module.exports = {
         if (lastNoticeByChannel.get(channel.id) === msg.id) lastNoticeByChannel.delete(channel.id);
         return interaction.reply({ content: "🗑️ 공지 삭제 완료!", ephemeral: true });
       } catch {
-        return interaction.reply({ content: "❌ 공지 메시지를 찾지 못했어요.", ephemeral: true });
+        return interaction.reply({ content: "❌ 공지를 찾지 못했어요.", ephemeral: true });
       }
     }
   }
