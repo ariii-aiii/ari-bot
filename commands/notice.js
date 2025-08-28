@@ -86,7 +86,7 @@ module.exports = {
       const embed = new EmbedBuilder()
         .setTitle(title).setDescription(content)
         .setColor(parseColor(colorStr))
-        .setFooter({ text: `by ${interaction.user.tag}` })
+       // .setFooter({ text: `by ${interaction.user.tag}` }) // ← 이 부분 삭제!
         .setTimestamp();
 
       if (stickyOn) {
