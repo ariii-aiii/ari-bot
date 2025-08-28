@@ -72,6 +72,22 @@ function sanitizeEmbed(baseEmbed) {
   e.setTimestamp(null);
   return e;
 }
+
+// ✅ 한 번 쓸어담기: 같은 채널의 봇 공지(제목에 공지/📢 포함) 중 keepId 제외하고 삭제
+async function sweepOnce(channel, keepId) {
+  try {
+    const fetched = await channel.messages.fetch({ limit: 30 });
+    const bots = fetched.filter(m => m.author?.bot && m.id !== keepId);
+    const targets = bots.filter(m => {
+      const t = m.embeds?.[0]?.title || "";
+      return /공지|📢/.test(t);
+    });
+    for (const [, m] of targets) {
+      await m.delete().catch(() => {});
+    }
+  } catch {}
+}
+
 async function refreshSticky(channel, entry) {
   if (!entry) return;
   if (entry._lock) return;
@@ -94,6 +110,9 @@ async function refreshSticky(channel, entry) {
       const sent = await channel.send({ embeds: [newEmbed] });
       entry.messageId = sent.id;
       entry._lastMove = Date.now();
+
+      // 👇 전/옛 공지 싹 정리
+      await sweepOnce(channel, sent.id);
       return;
     }
 
@@ -102,12 +121,19 @@ async function refreshSticky(channel, entry) {
         const msg = await channel.messages.fetch(entry.messageId);
         await msg.edit({ embeds: [newEmbed] });
         entry._lastMove = Date.now();
+
+        // 👇 전/옛 공지 싹 정리
+        await sweepOnce(channel, msg.id);
         return;
       } catch {}
     }
+
     const sent = await channel.send({ embeds: [newEmbed] });
     entry.messageId = sent.id;
     entry._lastMove = Date.now();
+
+    // 👇 전/옛 공지 싹 정리
+    await sweepOnce(channel, sent.id);
 
   } catch (e) {
     console.error("sticky refresh error:", e?.message || e);
