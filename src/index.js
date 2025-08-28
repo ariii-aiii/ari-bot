@@ -24,7 +24,7 @@ const client = new Client({
 // ========================= 모집/스티키 상태 =========================
 /** 모집 상태: messageId -> { cap, hostId, members:Set, waitlist:Set, isClosed, title, closedBy, closedAt } */
 const recruitStates = new Map();
-/** 스티키 상태: channelId -> { enabled, mode:'follow', intervalMs, timer, embed, messageId } */
+/** 스티키 상태: channelId -> { enabled, mode:'follow', intervalMs, timer, embed, messageId, debounceTimer } */
 const stickyStore   = new Map();
 
 // ========================= 권한 체크(마감) =========================
@@ -79,18 +79,46 @@ function buildRecruitEmbed(st) {
 }
 
 // ========================= 스티키 실재 게시 =========================
+// 동시 호출 방지용 채널 잠금
+const stickyRefreshing = new Set();
+
+/**
+ * 스티키를 "하나만 유지"하도록 업데이트
+ * - 기존 메시지가 있으면 edit
+ * - 없으면 send 후 messageId 저장
+ * - 채널 단위 잠금으로 레이스 컨디션 방지
+ */
 async function refreshSticky(channel, entry) {
+  if (!entry) return;
+
+  // 채널 잠금
+  if (stickyRefreshing.has(channel.id)) return;
+  stickyRefreshing.add(channel.id);
+
   try {
+    const newEmbed = EmbedBuilder.from(entry.embed);
+
     if (entry.messageId) {
       try {
-        const old = await channel.messages.fetch(entry.messageId);
-        await old.delete();
-      } catch {}
+        const msg = await channel.messages.fetch(entry.messageId);
+        await msg.edit({ embeds: [newEmbed] });
+        return; // edit 성공하면 끝
+      } catch (e) {
+        // 10008: Unknown Message (지워졌거나 못 찾음) → 새로 생성
+        if (!(e && e.code === 10008)) {
+          console.error("sticky fetch/edit error:", e?.message || e);
+        }
+      }
     }
-    const msg = await channel.send({ embeds: [EmbedBuilder.from(entry.embed)] });
-    entry.messageId = msg.id;
-  } catch (e) {
-    console.error("sticky refresh error:", e?.message);
+
+    // 없거나 못 찾았을 때만 새로 생성
+    const sent = await channel.send({ embeds: [newEmbed] });
+    entry.messageId = sent.id;
+
+  } catch (e2) {
+    console.error("sticky refresh error:", e2?.message || e2);
+  } finally {
+    stickyRefreshing.delete(channel.id);
   }
 }
 
@@ -111,11 +139,19 @@ try {
 }
 
 // ========================= 메시지 이벤트(스티키 follow) =========================
+// 같은 채널에서 메시지가 연달아 올 때 스티키 갱신을 300ms로 디바운스
 client.on(Events.MessageCreate, async (msg) => {
   if (msg.author.bot || !msg.inGuild()) return;
   const entry = stickyStore.get(msg.channelId);
   if (entry?.enabled && entry.mode === "follow") {
-    await refreshSticky(msg.channel, entry);
+    try {
+      if (entry.debounceTimer) clearTimeout(entry.debounceTimer);
+      entry.debounceTimer = setTimeout(() => {
+        refreshSticky(msg.channel, entry);
+      }, 300);
+    } catch (e) {
+      console.error("[sticky debounce error]", e?.message || e);
+    }
   }
 });
 
