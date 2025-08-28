@@ -78,16 +78,18 @@ function buildRecruitEmbed(st) {
 // ────────────────────────── 스티키 로직 ──────────────────────────
 const stickyRefreshing = new Set();
 
-// footer에 채널 마커 심기 → 중복 식별
-// footer 완전 제거 버전
 function markStickyEmbed(channel, baseEmbed) {
   const e = EmbedBuilder.from(baseEmbed);
 
-  // footer 싹 지우기
+  // footer 싹 제거
   e.setFooter(null);
+
+  // 대신 description 맨 끝에만 마커를 넣어둠 (사용자 안 보이게 zero-width space)
+  e.setDescription((e.data.description || "") + "\u200B");
 
   return e;
 }
+
 
 
 // 중복 스티키 정리(마커 없는 옛 공지까지 싹)
