@@ -1,3 +1,4 @@
+// commands/notice.js
 const { SlashCommandBuilder, EmbedBuilder, resolveColor, PermissionFlagsBits } = require("discord.js");
 
 const DEFAULT_HEX = "#CDC1FF";
@@ -71,16 +72,16 @@ module.exports = {
       return channel.messages.fetch(id);
     };
 
-    // 등록
     if (sub === "create") {
-      const content = interaction.options.getString("content", true);
-      const title = interaction.options.getString("title") || "📢 공지";
+      const content  = interaction.options.getString("content", true);
+      const title    = interaction.options.getString("title") || "📢 공지";
       const colorStr = interaction.options.getString("color");
       const stickyOn = interaction.options.getBoolean("sticky") ?? true;
 
       const embed = new EmbedBuilder()
-        .setTitle(title).setDescription(content)
-        .setColor(parseColor(colorStr));
+        .setTitle(title)
+        .setDescription(content)
+        .setColor(parseColor(colorStr)); // 푸터/타임스탬프 없음
 
       if (stickyOn) {
         let entry = stickyStore.get(channel.id);
@@ -90,7 +91,7 @@ module.exports = {
           mode: "follow",
           embed: embed.toJSON(),
           messageId: lastNoticeByChannel.get(channel.id) || null,
-          cooldownMs: 2000,
+          cooldownMs: 2000, // 쿨다운
           _lock: false,
           _lastMove: 0
         };
@@ -105,22 +106,21 @@ module.exports = {
       }
     }
 
-    // 수정
     if (sub === "edit") {
       const newContent = interaction.options.getString("content");
-      const newTitle = interaction.options.getString("title");
-      const newColor = interaction.options.getString("color");
-
+      const newTitle   = interaction.options.getString("title");
+      const newColor   = interaction.options.getString("color");
       if (!newContent && !newTitle && !newColor) {
         return interaction.reply({ content: "수정할 항목이 없어요.", ephemeral: true });
       }
-
       try {
         const msg = await getTargetMessage();
         const embed = EmbedBuilder.from(msg.embeds?.[0] || new EmbedBuilder());
-        if (newTitle != null) embed.setTitle(newTitle);
+        if (newTitle   != null) embed.setTitle(newTitle);
         if (newContent != null) embed.setDescription(newContent);
-        if (newColor != null) embed.setColor(parseColor(newColor));
+        if (newColor   != null) embed.setColor(parseColor(newColor));
+        embed.setFooter(null);
+        embed.setTimestamp(null);
         await msg.edit({ embeds: [embed] });
 
         const sticky = stickyStore.get(channel.id);
@@ -136,7 +136,6 @@ module.exports = {
       }
     }
 
-    // 삭제
     if (sub === "delete") {
       try {
         const msg = await getTargetMessage();
