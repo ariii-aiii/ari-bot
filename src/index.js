@@ -22,17 +22,27 @@ const client = new Client({
 });
 
 // ========================= 모집/스티키 상태 =========================
-/** 모집 상태: messageId -> { cap, hostId, members:Set, waitlist:Set, isClosed, title, closedBy, closedAt } */
-const recruitStates = new Map();
-/** 스티키 상태: channelId -> { enabled, mode:'follow', intervalMs, timer, embed, messageId, debounceTimer } */
-const stickyStore   = new Map();
+const recruitStates = new Map(); // 모집 상태
+const stickyStore   = new Map(); // 스티키 상태
+
+// ========================= 안전 응답 유틸 =========================
+async function safeReply(i, payload) {
+  if (i.replied || i.deferred) return i.followUp(payload);
+  return i.reply(payload);
+}
+
+async function ensureDeferred(i, opts = { ephemeral: true }) {
+  if (!i.deferred && !i.replied) {
+    await i.deferReply(opts);
+  }
+}
 
 // ========================= 권한 체크(마감) =========================
 function canClose(i) {
   const ids = (process.env.CLOSE_ROLE_IDS || "")
     .split(",").map(s => s.trim()).filter(Boolean);
   if (!i.inGuild()) return false;
-  if (ids.length === 0) return true; // 제한 없으면 모두 가능
+  if (ids.length === 0) return true;
   return i.member?.roles?.cache?.some(r => ids.includes(r.id));
 }
 
@@ -54,14 +64,12 @@ function buildRecruitEmbed(st) {
   const lock  = st.isClosed ? "🔒 " : "";
   const title = `${lock}${st.title} - 정원 ${st.cap}명`;
 
-  // 참가자
   const memberArr = [...st.members];
   const lines = memberArr.map((uid, i) => `${i + 1}. <@${uid}>`);
 
   let desc = `현재 인원: **${memberArr.length}/${st.cap}**`;
   if (lines.length) desc += `\n\n${lines.join("\n")}`;
 
-  // 예비자
   const waitArr = [...st.waitlist];
   if (waitArr.length) {
     const wlines = waitArr.map((uid, i) => `${i + 1}. <@${uid}>`);
@@ -78,11 +86,9 @@ function buildRecruitEmbed(st) {
   return new EmbedBuilder().setTitle(title).setDescription(desc).setColor(isNaN(colorInt) ? 0xCDC1FF : colorInt);
 }
 
-// ========================= 스티키 갱신(핵심 수정) =========================
-// 동시 호출 방지용 채널 잠금 + 중복 청소기
+// ========================= 스티키 갱신 =========================
 const stickyRefreshing = new Set();
 
-/** 최근 50개에서 같은 제목(기본: 📌 공지) 가진 봇 임베드 정리 */
 async function sweepStickyDuplicates(channel, keepId, matchTitle = "📌 공지") {
   try {
     const fetched = await channel.messages.fetch({ limit: 50 });
@@ -100,17 +106,8 @@ async function sweepStickyDuplicates(channel, keepId, matchTitle = "📌 공지"
   }
 }
 
-/**
- * 스티키를 "하나만 유지"하도록 업데이트
- * - 기존 메시지가 있으면 edit
- * - 없으면 send 후 messageId 저장
- * - 채널 단위 잠금으로 레이스 컨디션 방지
- * - 갱신 후 중복 임베드 싹 정리
- */
 async function refreshSticky(channel, entry) {
   if (!entry) return;
-
-  // 채널 잠금
   if (stickyRefreshing.has(channel.id)) return;
   stickyRefreshing.add(channel.id);
 
@@ -120,18 +117,16 @@ async function refreshSticky(channel, entry) {
     if (entry.messageId) {
       try {
         const msg = await channel.messages.fetch(entry.messageId);
-        await msg.edit({ embeds: [newEmbed] });        // ✅ edit 우선
-        await sweepStickyDuplicates(channel, msg.id);   // ✅ 중복 정리
+        await msg.edit({ embeds: [newEmbed] });
+        await sweepStickyDuplicates(channel, msg.id);
         return;
       } catch (e) {
-        // 10008 = Unknown Message (지워졌거나 못 찾음) → 새로 생성
         if (!(e && e.code === 10008)) {
           console.error("sticky fetch/edit error:", e?.message || e);
         }
       }
     }
 
-    // 없거나 못 찾았을 때만 새로 생성
     const sent = await channel.send({ embeds: [newEmbed] });
     entry.messageId = sent.id;
     await sweepStickyDuplicates(channel, sent.id);
@@ -160,7 +155,6 @@ try {
 }
 
 // ========================= 메시지 이벤트(스티키 follow) =========================
-// 같은 채널에서 메시지가 연달아 올 때 스티키 갱신을 300ms로 디바운스
 client.on(Events.MessageCreate, async (msg) => {
   if (msg.author.bot || !msg.inGuild()) return;
   const entry = stickyStore.get(msg.channelId);
@@ -179,7 +173,6 @@ client.on(Events.MessageCreate, async (msg) => {
 // ========================= 인터랙션(버튼/슬래시) =========================
 client.on(Events.InteractionCreate, async (i) => {
   try {
-    // ── 버튼 처리 (레거시 customId 호환)
     if (i.isButton()) {
       let action = i.customId;
       let messageId = null;
@@ -189,14 +182,12 @@ client.on(Events.InteractionCreate, async (i) => {
         action = parts[0];
         messageId = parts[1] || null;
       }
-      // 구버전 버튼이면 현재 메시지 ID로 보정
       if (!messageId && i.message) messageId = i.message.id;
 
       if (!messageId) {
-        return i.reply({ content: '버튼 ID를 확인할 수 없어요. 새로 만들어주세요.', ephemeral: true });
+        return safeReply(i, { content: '버튼 ID를 확인할 수 없어요. 새로 만들어주세요.', ephemeral: true });
       }
 
-      // 상태 복구: embed 제목/본문만으로 복원
       if (!recruitStates.has(messageId)) {
         try {
           const msg = await i.channel.messages.fetch(messageId);
@@ -222,27 +213,27 @@ client.on(Events.InteractionCreate, async (i) => {
       }
 
       const st = recruitStates.get(messageId);
-      if (!st) return i.reply({ content: "상태를 찾지 못했어요. 새로 만들어주세요.", ephemeral: true });
+      if (!st) return safeReply(i, { content: "상태를 찾지 못했어요. 새로 만들어주세요.", ephemeral: true });
 
       const uid = i.user.id;
 
       if (action === "join") {
-        if (st.isClosed) return i.reply({ content: "이미 마감됐어요.", ephemeral: true });
-        if (st.members.has(uid)) return i.reply({ content: "이미 참가 중!", ephemeral: true });
+        if (st.isClosed) return safeReply(i, { content: "이미 마감됐어요.", ephemeral: true });
+        if (st.members.has(uid)) return safeReply(i, { content: "이미 참가 중!", ephemeral: true });
 
         if (st.members.size < st.cap) {
           st.members.add(uid);
-          await i.reply({ content: "✅ 참가 완료!", ephemeral: true });
+          await safeReply(i, { content: "✅ 참가 완료!", ephemeral: true });
         } else {
-          if (st.waitlist.has(uid)) return i.reply({ content: "이미 대기열에 있어요.", ephemeral: true });
+          if (st.waitlist.has(uid)) return safeReply(i, { content: "이미 대기열에 있어요.", ephemeral: true });
           st.waitlist.add(uid);
-          await i.reply({ content: "⏳ 정원 초과! 대기열에 등록했어요.", ephemeral: true });
+          await safeReply(i, { content: "⏳ 정원 초과! 대기열에 등록했어요.", ephemeral: true });
         }
         try {
           const msg = await i.channel.messages.fetch(messageId);
           await msg.edit({
             embeds: [buildRecruitEmbed(st)],
-            components: [rowFor(messageId, st.isClosed)] // 항상 최신 버튼 세트로 교체
+            components: [rowFor(messageId, st.isClosed)]
           });
         } catch {}
         return;
@@ -261,12 +252,12 @@ client.on(Events.InteractionCreate, async (i) => {
               u.send("대기열에서 자동 참가되었어요!").catch(()=>{});
             } catch {}
           }
-          await i.reply({ content: "❎ 참가 취소!", ephemeral: true });
+          await safeReply(i, { content: "❎ 참가 취소!", ephemeral: true });
         } else if (st.waitlist.delete(uid)) {
           changed = true;
-          await i.reply({ content: "📝 대기열에서 제거했어요.", ephemeral: true });
+          await safeReply(i, { content: "📝 대기열에서 제거했어요.", ephemeral: true });
         } else {
-          return i.reply({ content: "참가/대기열에 없어요.", ephemeral: true });
+          return safeReply(i, { content: "참가/대기열에 없어요.", ephemeral: true });
         }
         if (changed) {
           try {
@@ -281,12 +272,12 @@ client.on(Events.InteractionCreate, async (i) => {
       }
 
       if (action === "list") {
-        return i.reply({ embeds: [buildRecruitEmbed(st)], ephemeral: true });
+        return safeReply(i, { embeds: [buildRecruitEmbed(st)], ephemeral: true });
       }
 
       if (action === "close" || action === "open") {
         if (!canClose(i) && uid !== st.hostId) {
-          return i.reply({ content: "마감/재오픈 권한이 없어요.", ephemeral: true });
+          return safeReply(i, { content: "마감/재오픈 권한이 없어요.", ephemeral: true });
         }
         st.isClosed = (action === "close");
         st.closedBy = uid;
@@ -295,30 +286,30 @@ client.on(Events.InteractionCreate, async (i) => {
           const msg = await i.channel.messages.fetch(messageId);
           await msg.edit({
             embeds: [buildRecruitEmbed(st)],
-            components: [rowFor(messageId, st.isClosed)] // 새 customId로 동기화
+            components: [rowFor(messageId, st.isClosed)]
           });
         } catch {}
-        return i.reply({ content: st.isClosed ? "🔒 마감!" : "🔓 재오픈!", ephemeral: true });
+        return safeReply(i, { content: st.isClosed ? "🔒 마감!" : "🔓 재오픈!", ephemeral: true });
       }
 
-      // 알 수 없는 action
-      return i.reply({ content: "알 수 없는 버튼이에요.", ephemeral: true });
+      return safeReply(i, { content: "알 수 없는 버튼이에요.", ephemeral: true });
     }
 
     // ── 슬래시 커맨드
     if (i.isChatInputCommand()) {
       const command = client.commands.get(i.commandName);
       if (!command) return;
-      // 유틸 공유 (필요한 커맨드에서 사용)
       i._ari = { recruitStates, rowFor, buildRecruitEmbed, stickyStore, refreshSticky };
-      // 각 커맨드 파일에서 필요 시 deferReply() → editReply() 사용
       await command.execute(i);
     }
   } catch (err) {
     console.error(err);
     try {
-      if (i.deferred || i.replied) await i.editReply("에러가 났어요 ㅠㅠ");
-      else await i.reply({ content: "에러가 났어요 ㅠㅠ", ephemeral: true });
+      if (i.deferred && !i.replied) {
+        await i.editReply("에러가 났어요 ㅠㅠ");
+      } else {
+        await safeReply(i, { content: "에러가 났어요 ㅠㅠ", ephemeral: true });
+      }
     } catch {}
   }
 });
@@ -337,10 +328,10 @@ client.once(Events.ClientReady, async (c) => {
   }
 });
 
-// ========================= keepalive(자기 자신 핑) =========================
+// ========================= keepalive =========================
 function keepAlive() {
   const url = process.env.RENDER_EXTERNAL_URL || process.env.HEALTH_URL;
-  if (!url) return; // URL 없으면 스킵
+  if (!url) return;
   const https = require('https');
   setInterval(() => {
     https.get(url, (res) => {
@@ -348,14 +339,14 @@ function keepAlive() {
       console.log(`[keepalive] ${url} -> ${res.statusCode} ${ok ? 'OK' : 'NG'}`);
       res.resume();
     }).on('error', (e) => console.error('[keepalive error]', e.message));
-  }, 1000 * 60 * 4); // 4분마다
+  }, 1000 * 60 * 4);
 }
 keepAlive();
 
 // ========================= 로그인 + 에러 캐치 =========================
 client.login(process.env.BOT_TOKEN).catch((err) => {
   console.error('[LOGIN FAIL]', err?.code || err?.message || err);
-  process.exit(1); // 로그인 실패만 재시작 유도(Render가 재시작)
+  process.exit(1);
 });
 
 // 전역 에러 로그
