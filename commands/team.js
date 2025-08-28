@@ -55,7 +55,7 @@ module.exports = {
       }
     }
 
-    // 💜 연보라 컬러 (예: #C4B5FD)
+    // 💜 연보라 컬러 (예: #CDC1FF)
     const embed = new EmbedBuilder()
       .setTitle("팀원 모집")
       .setDescription(`${interaction.user} 님이 팀원 모집 중입니다.`)
