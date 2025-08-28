@@ -1,8 +1,9 @@
 // src/index.js
 // ─────────────────────────────────────────────────────────────────────────────
 require('dotenv').config();
-require('../server');          // 루트/server.js (포트 오픈)
-require('./boot-check');       // BOT_TOKEN, CLIENT_ID 등 필수 ENV 확인
+const keepAlive = require('../server'); // ← 함수 가져오기
+keepAlive();                            // ← 반드시 호출!
+require('./boot-check');
 // ─────────────────────────────────────────────────────────────────────────────
 
 const {
