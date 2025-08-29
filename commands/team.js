@@ -61,7 +61,8 @@ module.exports = {
       .setTitle("팀원 모집")
       .setDescription(`${interaction.user} 님이 팀원 모집 중입니다.`)
       .setColor(0xCDC1FF)
-      .setFooter({ text: "아리서버 아리봇" })
+      .setFooter({ text: "아리봇 팀 모집", iconURL: interaction.client.user.displayAvatarURL() })
+
       .addFields(
         { name: "카테고리", value: parentName, inline: false },
         { name: "채널명",  value: `<#${displayCh.id}>${voiceCh ? " 🔊" : ""}`, inline: true },
