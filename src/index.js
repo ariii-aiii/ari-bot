@@ -62,7 +62,7 @@ function buildRecruitEmbed(st) {
     const when = new Date(st.closedAt || Date.now()).toLocaleString("ko-KR", { hour12: false });
     desc += `\n\n🔒 **마감됨 – 마감자:** <@${st.closedBy || st.hostId}>  ${when}`;
   }
-  const colorHex = (process.env.NOTICE_COLOR || "#CDC1FF").replace(/^#/, "");
+  const colorHex = (process.env.NOTICE_COLOR || "#CDC1FF").replace(/\\n/g, '\n');
   const colorInt = parseInt(colorHex, 16);
   return new EmbedBuilder().setTitle(title).setDescription(desc).setColor(isNaN(colorInt) ? 0xCDC1FF : colorInt);
 }
