@@ -1,4 +1,4 @@
-// commands/notice.js — 이전 공지/스티키 자동삭제 → 새 공지 1장만 스티키로 유지 + 줄바꿈 정규화
+// commands/notice.js — 이전 공지/스티키 자동 삭제 → 새 공지 1장만 유지(기본: 스티키) + 줄바꿈 정규화
 const { SlashCommandBuilder, EmbedBuilder, resolveColor, PermissionFlagsBits } = require("discord.js");
 
 /* ───────────────── 색상 파싱 ───────────────── */
@@ -24,28 +24,12 @@ function toColorInt(input) {
 /* ──────────────── 줄바꿈 정규화 ──────────────── */
 function normalizeNewlines(s = "") {
   return String(s)
-    .replace(/\r\n/g, "\n")      // CRLF → LF
-    .replace(/\\n/g, "\n")       // 글자 그대로 '\n' → 개행
+    .replace(/\r\n/g, "\n")   // CRLF → LF
+    .replace(/\\n/g, "\n")    // 글자 그대로 '\n' → 개행
     .replace(/\s*\|\s*/g, "\n"); // 파이프(|) → 개행
 }
 
-/* ──────────────── 태그 주입 (푸터) ──────────────── */
-function tagNotice(embed) {
-  const base = embed.data.footer?.text || "";
-  if (!base.includes("TAG:NOTICE")) {
-    embed.setFooter({ text: `${base ? base + " · " : ""}TAG:NOTICE` });
-  }
-  return embed;
-}
-function tagStickyFrom(embed) {
-  const e = EmbedBuilder.from(embed);
-  const base = e.data.footer?.text || "";
-  if (!base.includes("TAG:STICKY")) {
-    e.setFooter({ text: `${base ? base + " · " : ""}TAG:STICKY` });
-  }
-  return e;
-}
-
+/* ───────────────── Slash Command ───────────────── */
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("notice").setNameLocalizations({ ko: "공지" })
@@ -64,7 +48,7 @@ module.exports = {
        .addStringOption(o => o.setName("color").setNameLocalizations({ ko:"컬러" })
          .setDescription("색상 (예: #CDC1FF, pink 등)"))
        .addBooleanOption(o => o.setName("sticky").setNameLocalizations({ ko:"스티키" })
-         .setDescription("이번 공지를 스티키로(기본: 켬)").setRequired(false))
+         .setDescription("이번 공지를 스티키로 (기본: 켬)"))
     )
 
     // 수정
@@ -79,7 +63,7 @@ module.exports = {
        .addStringOption(o => o.setName("color").setNameLocalizations({ ko:"컬러" })
          .setDescription("새 컬러"))
        .addBooleanOption(o => o.setName("sticky").setNameLocalizations({ ko:"스티키" })
-         .setDescription("이 공지를 스티키로 전환/유지"))
+         .setDescription("이 공지를 스티키로 전환/유지 (미지정 시 현재 모드 유지)"))
     )
 
     // 삭제
@@ -96,7 +80,7 @@ module.exports = {
 
     const sub = i.options.getSubcommand();
     const ch  = i.channel;
-    const { notice, stickyStore } = i._ari; // refreshSticky 즉시 호출 안 함(중복 방지)
+    const { notice, stickyStore } = i._ari; // refreshSticky는 여기서 호출 안 함(중복 방지)
 
     // 공통: 이전 공지/스티키 안전 삭제
     async function purgePrev() {
@@ -119,6 +103,12 @@ module.exports = {
       } catch {}
     }
 
+    // 현재 모드 파악
+    function hasSticky() {
+      const e = stickyStore.get(ch.id);
+      return !!(e?.enabled && e?.messageId);
+    }
+
     if (sub === "create") {
       const rawContent = i.options.getString("content", true);
       const titleOpt   = i.options.getString("title");
@@ -130,7 +120,6 @@ module.exports = {
         .setTitle(titleOpt?.trim() || "📢 공지")
         .setDescription(normalizeNewlines(rawContent))
         .setColor(colorInt);
-      tagNotice(embed);
 
       // ✅ 항상: 이전 것들 싹 삭제
       await purgePrev();
@@ -139,12 +128,11 @@ module.exports = {
 
       if (makeSticky) {
         // ✅ 새 공지를 "스티키 1장"으로 바로 전송
-        const sEmbed = tagStickyFrom(embed);
-        const sent = await ch.send({ embeds: [sEmbed] });
+        const sent = await ch.send({ embeds: [embed] });
         stickyStore.set(ch.id, {
           enabled   : true,
-          mode      : "follow",          // 이후 필요시 따라오게
-          payload   : { embeds: [sEmbed] },
+          mode      : "follow",
+          payload   : { embeds: [embed] },
           messageId : sent.id,
           cooldownMs: 1500
         });
@@ -160,38 +148,45 @@ module.exports = {
       const rawContent = i.options.getString("content");
       const titleNew   = i.options.getString("title");
       const colorNew   = i.options.getString("color");
-      const stickyWant = i.options.getBoolean("sticky");
+      let   stickyWant = i.options.getBoolean("sticky"); // undefined면 현 모드 유지
 
-      // 베이스 임베드(없으면 새로)
+      // 현재 모드 유지 로직
+      if (stickyWant === undefined) stickyWant = hasSticky();
+
+      // 베이스 임베드 로딩 (공지/스티키 중 존재하는 쪽)
       let base = new EmbedBuilder();
       try {
         const saved = notice.store.get(ch.id);
         if (saved?.messageId) {
           const msg = await ch.messages.fetch(saved.messageId);
           base = EmbedBuilder.from(msg.embeds?.[0] || new EmbedBuilder());
+        } else {
+          const ent = stickyStore.get(ch.id);
+          if (ent?.messageId) {
+            const msg = await ch.messages.fetch(ent.messageId);
+            base = EmbedBuilder.from(msg.embeds?.[0] || new EmbedBuilder());
+          }
         }
       } catch {}
 
       if (titleNew   != null) base.setTitle(titleNew || "📢 공지");
       if (rawContent != null) base.setDescription(normalizeNewlines(rawContent));
       if (colorNew   != null) base.setColor(toColorInt(colorNew));
-      tagNotice(base);
 
       if (stickyWant) {
-        // ✅ 스티키로 전환: 이전 것 싹 지우고 스티키 1장 생성
+        // ✅ 스티키로 유지/전환: 이전 것 싹 지우고 스티키 1장 생성
         await purgePrev();
-        const sEmbed = tagStickyFrom(base);
-        const sent = await ch.send({ embeds: [sEmbed] });
+        const sent = await ch.send({ embeds: [base] });
         stickyStore.set(ch.id, {
           enabled   : true,
           mode      : "follow",
-          payload   : { embeds: [sEmbed] },
+          payload   : { embeds: [base] },
           messageId : sent.id,
           cooldownMs: 1500
         });
-        return i.editReply("✏️ 공지 수정 완료! (스티키로 전환)");
+        return i.editReply("✏️ 공지 수정 완료! (스티키 모드)");
       } else {
-        // ✅ 일반 공지만 유지: 스티키는 제거
+        // ✅ 일반 공지 유지/전환: 스티키 제거
         try { await notice.edit(ch, { embeds: [base] }); }
         catch { await notice.upsert(ch, { embeds: [base] }); }
 
@@ -201,7 +196,7 @@ module.exports = {
         }
         stickyStore.delete(ch.id);
 
-        return i.editReply("✏️ 공지 수정 완료! (일반 공지)");
+        return i.editReply("✏️ 공지 수정 완료! (일반 모드)");
       }
     }
 
