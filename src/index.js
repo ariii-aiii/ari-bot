@@ -19,10 +19,11 @@ const client = new Client({
 });
 
 // ===== 상태 저장소 =====
-const recruitStates = new Map();
-const stickyStore   = new Map();
+const recruitStates = new Map();   // 모집 상태
+const stickyStore   = new Map();   // 스티키(팔로우) 상태: channelId -> entry
+const noticeStore   = new Map();   // 공지 단일 유지: channelId -> { messageId, payload }
 
-// ===== 공통 유틸 (다른 명령어 호환용) =====
+// ===== 공통 유틸 =====
 async function safeReply(i, payload) {
   if (i.replied || i.deferred) return i.followUp(payload);
   return i.reply(payload);
@@ -65,27 +66,75 @@ function buildRecruitEmbed(st) {
   return new EmbedBuilder().setTitle(title).setDescription(desc).setColor(isNaN(colorInt) ? 0xCDC1FF : colorInt);
 }
 
-// ===== 스티키 핵심(한 채널 1개, 깜빡임 방지) =====
-function sanitizeEmbed(baseEmbed) {
-  const e = EmbedBuilder.from(baseEmbed);
-  e.setFooter(null);
-  e.setTimestamp(null);
-  return e;
-}
+// ===== 공지(단일 유지) 유틸 =====
 
-// ✅ 한 번 쓸어담기: 같은 채널의 봇 공지(제목에 공지/📢 포함) 중 keepId 제외하고 삭제
+// 봇이 올린 예전 공지들을 한 번에 정리(keepId 제외)
 async function sweepOnce(channel, keepId) {
   try {
     const fetched = await channel.messages.fetch({ limit: 30 });
     const bots = fetched.filter(m => m.author?.bot && m.id !== keepId);
     const targets = bots.filter(m => {
-      const t = m.embeds?.[0]?.title || "";
-      return /공지|📢/.test(t);
+      const t = m.embeds?.[0]?.title || m.content || "";
+      return /공지|📢|역할신청/i.test(t);
     });
     for (const [, m] of targets) {
       await m.delete().catch(() => {});
     }
   } catch {}
+}
+
+// content 또는 embeds/components 등 Discord 메시지 옵션을 그대로 받는 형태
+async function upsertNotice(channel, payload) {
+  // 이전 공지 지우고 하나만 유지
+  const prev = noticeStore.get(channel.id);
+  if (prev?.messageId) {
+    try {
+      const m = await channel.messages.fetch(prev.messageId);
+      await m.delete().catch(()=>{});
+    } catch {}
+  }
+  const sent = await channel.send(payload);
+  noticeStore.set(channel.id, { messageId: sent.id, payload });
+  // 과거 공지 싹 정리
+  await sweepOnce(channel, sent.id);
+  return sent;
+}
+
+async function editNotice(channel, newPayload) {
+  const saved = noticeStore.get(channel.id);
+  if (saved?.messageId) {
+    try {
+      const m = await channel.messages.fetch(saved.messageId);
+      await m.edit(newPayload);
+      noticeStore.set(channel.id, { messageId: m.id, payload: newPayload });
+      await sweepOnce(channel, m.id);
+      return m;
+    } catch {
+      // 기존 메시지가 없으면 새로 생성
+      return upsertNotice(channel, newPayload);
+    }
+  } else {
+    return upsertNotice(channel, newPayload);
+  }
+}
+
+async function deleteNotice(channel) {
+  const saved = noticeStore.get(channel.id);
+  if (saved?.messageId) {
+    try {
+      const m = await channel.messages.fetch(saved.messageId);
+      await m.delete().catch(()=>{});
+    } catch {}
+  }
+  noticeStore.delete(channel.id);
+}
+
+// ===== 스티키(팔로우 모드) =====
+function sanitizeEmbed(baseEmbed) {
+  const e = EmbedBuilder.from(baseEmbed);
+  e.setFooter(null);
+  e.setTimestamp(null);
+  return e;
 }
 
 async function refreshSticky(channel, entry) {
@@ -98,41 +147,38 @@ async function refreshSticky(channel, entry) {
 
   entry._lock = true;
   try {
-    const newEmbed = sanitizeEmbed(entry.embed);
-
     if (entry.mode === "follow") {
+      // follow는 항상 맨 아래로 재전송
       if (entry.messageId) {
         try {
           const old = await channel.messages.fetch(entry.messageId);
           await old.delete().catch(() => {});
         } catch {}
       }
-      const sent = await channel.send({ embeds: [newEmbed] });
+      const payload = entry.payload || { embeds: [sanitizeEmbed(entry.embed)] };
+      const sent = await channel.send(payload);
       entry.messageId = sent.id;
       entry._lastMove = Date.now();
-
-      // 👇 전/옛 공지 싹 정리
       await sweepOnce(channel, sent.id);
       return;
     }
 
+    // 고정형(편집) 모드
     if (entry.messageId) {
       try {
         const msg = await channel.messages.fetch(entry.messageId);
-        await msg.edit({ embeds: [newEmbed] });
+        const payload = entry.payload || { embeds: [sanitizeEmbed(entry.embed)] };
+        await msg.edit(payload);
         entry._lastMove = Date.now();
-
-        // 👇 전/옛 공지 싹 정리
         await sweepOnce(channel, msg.id);
         return;
       } catch {}
     }
 
-    const sent = await channel.send({ embeds: [newEmbed] });
+    const payload = entry.payload || { embeds: [sanitizeEmbed(entry.embed)] };
+    const sent = await channel.send(payload);
     entry.messageId = sent.id;
     entry._lastMove = Date.now();
-
-    // 👇 전/옛 공지 싹 정리
     await sweepOnce(channel, sent.id);
 
   } catch (e) {
@@ -151,7 +197,7 @@ client.on(Events.MessageCreate, async (msg) => {
       if (entry.debounceTimer) clearTimeout(entry.debounceTimer);
       entry.debounceTimer = setTimeout(() => {
         refreshSticky(msg.channel, entry);
-      }, 1200); // 1.2s로 연속 입력 흡수
+      }, 1200);
     } catch (e) {
       console.error("[sticky debounce error]", e?.message || e);
     }
@@ -180,8 +226,25 @@ client.on(Events.InteractionCreate, async (i) => {
     if (i.isChatInputCommand()) {
       const command = client.commands.get(i.commandName);
       if (!command) return;
-      // 👉 다른 명령어도 쓰라고 공통 유틸 모두 주입
-      i._ari = { stickyStore, refreshSticky, recruitStates, rowFor, buildRecruitEmbed, canClose };
+
+      // 명령어에서 바로 쓸 수 있게 유틸 주입
+      i._ari = {
+        // 공지: 단일 유지 보장(여기만 쓰면 중복 안 생김)
+        notice: {
+          upsert: upsertNotice,   // await i._ari.notice.upsert(i.channel, payload)
+          edit:   editNotice,     // await i._ari.notice.edit(i.channel, payload)
+          del:    deleteNotice,   // await i._ari.notice.del(i.channel)
+          store:  noticeStore
+        },
+        // 스티키
+        stickyStore,
+        refreshSticky,
+        // 모집
+        recruitStates, rowFor, buildRecruitEmbed, canClose,
+        // 기타
+        sweepOnce
+      };
+
       await command.execute(i);
     }
   } catch (err) {
