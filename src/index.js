@@ -15,7 +15,7 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildVoiceStates,   // ✅ 추가
+    GatewayIntentBits.GuildVoiceStates,   // ✅ 음성채널 감지
   ]
 });
 
@@ -169,6 +169,50 @@ function tagStickyPayload(entry) {
   return entry?.payload || {};
 }
 
+/* ✅ 추가: 최근 공지(역할신청/공지/📢) 찾아서 스티키 payload 생성 */
+async function findLatestNoticePayload(channel) {
+  try {
+    const fetched = await channel.messages.fetch({ limit: 30 });
+    for (const [, m] of fetched) {
+      if (!m.author?.bot) continue;
+      const emb = m.embeds?.[0];
+      const title = emb?.title || "";
+      const footer = emb?.footer?.text || "";
+      const isNotice =
+        footer.includes("TAG:NOTICE") || /공지|역할신청|📢/i.test(title);
+
+      if (isNotice) {
+        const e = EmbedBuilder.from(emb || new EmbedBuilder());
+        const base = e.data.footer?.text || "";
+        if (!base.includes("TAG:STICKY")) {
+          e.setFooter({ text: `${base ? base + " · " : ""}TAG:STICKY` });
+        }
+        return { embeds: [e] };
+      }
+    }
+  } catch {}
+  return null;
+}
+
+/* ✅ 추가: 스티키 엔트리 없으면 최근 공지로 자동 켜기 */
+async function ensureStickyIfMissing(channel) {
+  if (stickyStore.has(channel.id)) return;
+  const payload = await findLatestNoticePayload(channel);
+  if (!payload) return;
+
+  const entry = {
+    enabled   : true,
+    mode      : "follow",
+    payload,
+    cooldownMs: 1500,
+    messageId : null,
+    _lock     : false,
+    _lastMove : 0
+  };
+  stickyStore.set(channel.id, entry);
+  await refreshSticky(channel, entry);
+}
+
 async function refreshSticky(channel, entry) {
   if (!entry) return;
   if (entry._lock) return;
@@ -219,6 +263,10 @@ async function refreshSticky(channel, entry) {
 // ===== 메시지 이벤트(팔로우 스티키) =====
 client.on(Events.MessageCreate, async (msg) => {
   if (msg.author.bot || !msg.inGuild()) return;
+
+  // ✅ 자동 보정: 스티키 엔트리 없으면 최근 공지로 자동 켜기
+  await ensureStickyIfMissing(msg.channel);
+
   const entry = stickyStore.get(msg.channelId);
   if (entry?.enabled && entry.mode === "follow") {
     try {
