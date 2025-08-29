@@ -21,6 +21,14 @@ function toColorInt(input) {
   try { return resolveColor(hex); } catch { return getDefaultColor(); }
 }
 
+/* ──────────────── 줄바꿈 정규화 ──────────────── */
+function normalizeNewlines(s="") {
+  return String(s)
+    .replace(/\r\n/g, "\n")   // CRLF → LF
+    .replace(/\\n/g, "\n")    // 글자 그대로 '\n' → 개행
+    .replace(/\s*\|\s*/g, "\n"); // 파이프(|) → 개행
+}
+
 /* ──────────────── 태그 주입 유틸 (푸터) ──────────────── */
 function tagNotice(embed) {
   const base = embed.data.footer?.text || "";
@@ -54,7 +62,7 @@ module.exports = {
        .addStringOption(o => o.setName("color").setNameLocalizations({ ko:"컬러" })
          .setDescription("색상 (예: #CDC1FF, pink 등)"))
        .addBooleanOption(o => o.setName("sticky").setNameLocalizations({ ko:"스티키" })
-         .setDescription("맨 아래 고정 (기본: 켜짐)")))
+         .setDescription("맨 아래 고정 (기본: 꺼짐)"))) // ✅ 기본 끔
     .addSubcommand(s =>
       s.setName("edit").setNameLocalizations({ ko: "수정" })
        .setDescription("Edit current notice")
@@ -66,7 +74,7 @@ module.exports = {
        .addStringOption(o => o.setName("color").setNameLocalizations({ ko:"컬러" })
          .setDescription("새 컬러").setRequired(false))
        .addBooleanOption(o => o.setName("sticky").setNameLocalizations({ ko:"스티키" })
-         .setDescription("스티키 동기화 (기본: 켬)")))
+         .setDescription("스티키 동기화 (기본: 꺼짐)"))) // ✅ 기본 끔
     .addSubcommand(s =>
       s.setName("delete").setNameLocalizations({ ko: "삭제" })
        .setDescription("Delete current notice")
@@ -83,11 +91,12 @@ module.exports = {
     const { notice, stickyStore, refreshSticky } = i._ari;
 
     if (sub === "create") {
-      const content  = i.options.getString("content", true);
-      const titleOpt = i.options.getString("title");
-      const colorOpt = i.options.getString("color");
-      const wantSticky = i.options.getBoolean("sticky");
-      const colorInt = toColorInt(colorOpt);
+      const rawContent  = i.options.getString("content", true);
+      const content     = normalizeNewlines(rawContent); // ✅ 개행 정규화
+      const titleOpt    = i.options.getString("title");
+      const colorOpt    = i.options.getString("color");
+      const wantSticky  = i.options.getBoolean("sticky");
+      const colorInt    = toColorInt(colorOpt);
 
       const embed = new EmbedBuilder()
         .setTitle(titleOpt?.trim() || "📢 공지")
@@ -95,11 +104,11 @@ module.exports = {
         .setColor(colorInt);
       tagNotice(embed);
 
-      // 채널당 공지 1개 유지 (기존 있으면 삭제 후 새로 생성)
+      // 채널당 공지 1개 유지
       await notice.upsert(ch, { embeds: [embed] });
 
-      // 스티키 기본 켬 (undefined면 true)
-      const stickyOn = (wantSticky === undefined) ? true : !!wantSticky;
+      // ✅ 기본 꺼짐. 켰더라도 '즉시 refresh'는 하지 않음(중복 방지)
+      const stickyOn = !!wantSticky;
       if (stickyOn) {
         const sEmbed = tagStickyFrom(embed);
         stickyStore.set(ch.id, {
@@ -108,45 +117,50 @@ module.exports = {
           payload   : { embeds: [sEmbed] },
           cooldownMs: 1500
         });
-        await refreshSticky(ch, stickyStore.get(ch.id));
+        // ❌ await refreshSticky(ch, stickyStore.get(ch.id));  // 즉시 발사 금지
+      } else {
+        // 스티키 끄기/정리
+        const entry = stickyStore.get(ch.id);
+        stickyStore.delete(ch.id);
+        if (entry?.messageId) {
+          try { const m = await ch.messages.fetch(entry.messageId); await m.delete().catch(()=>{}); } catch {}
+        }
       }
 
-      return i.editReply("📌 공지 등록 완료! (스티키 동기화)");
+      return i.editReply(`📌 공지 등록 완료!${stickyOn ? " (스티키 활성화—다음 메시지부터 따라붙음)" : ""}`);
     }
 
     if (sub === "edit") {
-      // 저장된 공지 불러와 edit → 없으면 upsert
-      const contentNew = i.options.getString("content");
+      const rawContent = i.options.getString("content");
       const titleNew   = i.options.getString("title");
       const colorNew   = i.options.getString("color");
       const wantSticky = i.options.getBoolean("sticky");
-      if (contentNew==null && titleNew==null && colorNew==null) {
+      if (rawContent==null && titleNew==null && colorNew==null) {
         return i.editReply("수정할 항목이 없어요.");
       }
 
-      // 현재 공지를 notice.store에서 찾음
+      // 현재 공지 불러오기
       const saved = notice.store.get(ch.id);
       let baseEmbed;
       if (saved?.messageId) {
         try {
           const msg = await ch.messages.fetch(saved.messageId);
           baseEmbed = EmbedBuilder.from(msg.embeds?.[0] || new EmbedBuilder());
-        } catch {
-          baseEmbed = new EmbedBuilder();
-        }
+        } catch { baseEmbed = new EmbedBuilder(); }
       } else {
         baseEmbed = new EmbedBuilder();
       }
 
-      if (titleNew   != null) baseEmbed.setTitle(titleNew || "📢 공지");
-      if (contentNew != null) baseEmbed.setDescription(contentNew);
-      if (colorNew   != null) baseEmbed.setColor(toColorInt(colorNew));
+      if (titleNew    != null) baseEmbed.setTitle(titleNew || "📢 공지");
+      if (rawContent  != null) baseEmbed.setDescription(normalizeNewlines(rawContent)); // ✅ 개행 정규화
+      if (colorNew    != null) baseEmbed.setColor(toColorInt(colorNew));
       baseEmbed.setTimestamp(null);
       tagNotice(baseEmbed);
 
       await notice.edit(ch, { embeds: [baseEmbed] });
 
-      const stickyOn = (wantSticky === undefined) ? true : !!wantSticky;
+      // ✅ 스티키 기본 꺼짐 + 즉시 refresh 금지
+      const stickyOn = !!wantSticky;
       if (stickyOn) {
         const sEmbed = tagStickyFrom(baseEmbed);
         stickyStore.set(ch.id, {
@@ -155,10 +169,16 @@ module.exports = {
           payload   : { embeds: [sEmbed] },
           cooldownMs: 1500
         });
-        await refreshSticky(ch, stickyStore.get(ch.id));
+        // ❌ await refreshSticky(ch, stickyStore.get(ch.id));
+      } else if (wantSticky === false) {
+        const entry = stickyStore.get(ch.id);
+        stickyStore.delete(ch.id);
+        if (entry?.messageId) {
+          try { const m = await ch.messages.fetch(entry.messageId); await m.delete().catch(()=>{}); } catch {}
+        }
       }
 
-      return i.editReply("✏️ 공지 수정 완료! (스티키 동기화)");
+      return i.editReply(`✏️ 공지 수정 완료!${stickyOn ? " (스티키 활성화—다음 메시지부터 따라붙음)" : ""}`);
     }
 
     if (sub === "delete") {
