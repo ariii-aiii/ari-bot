@@ -20,7 +20,7 @@ const client = new Client({
 
 // ===== 상태 저장소 =====
 const recruitStates = new Map();   // 모집 상태
-const stickyStore   = new Map();   // 스티키(팔로우) 상태: channelId -> entry
+const stickyStore   = new Map();   // 스티키(팔로우) 상태: channelId -> entry({enabled, mode, payload/embed, ...})
 const noticeStore   = new Map();   // 공지 단일 유지: channelId -> { messageId, payload }
 
 // ===== 공통 유틸 =====
@@ -66,51 +66,61 @@ function buildRecruitEmbed(st) {
   return new EmbedBuilder().setTitle(title).setDescription(desc).setColor(isNaN(colorInt) ? 0xCDC1FF : colorInt);
 }
 
-// ===== 공지(단일 유지) 유틸 =====
+/* ------------------------------------------------------------------ */
+/*                           공지(단일 유지)                           */
+/* ------------------------------------------------------------------ */
 
-// 봇이 올린 예전 공지들을 한 번에 정리(keepId 제외)
-async function sweepOnce(channel, keepId) {
+// TAG 구분형 청소: 같은 TAG만 지움
+async function sweepOnce(channel, keepId, tag) {
   try {
     const fetched = await channel.messages.fetch({ limit: 30 });
-    const bots = fetched.filter(m => m.author?.bot && m.id !== keepId);
-    const targets = bots.filter(m => {
-      const t = m.embeds?.[0]?.title || m.content || "";
-      return /공지|📢|역할신청/i.test(t);
-    });
-    for (const [, m] of targets) {
-      await m.delete().catch(() => {});
+    for (const [, m] of fetched) {
+      if (!m.author?.bot) continue;
+      if (m.id === keepId) continue;
+      const ft = m.embeds?.[0]?.footer?.text || "";
+      if (ft.includes(`TAG:${tag}`)) {
+        await m.delete().catch(() => {});
+      }
     }
   } catch {}
 }
 
-// content 또는 embeds/components 등 Discord 메시지 옵션을 그대로 받는 형태
+// payload(embeds[0])에 TAG:NOTICE 푸터 주입
+function ensureNoticeTag(payload) {
+  if (payload?.embeds?.length) {
+    const e = EmbedBuilder.from(payload.embeds[0]);
+    const base = e.data.footer?.text || "";
+    if (!base.includes("TAG:NOTICE")) {
+      e.setFooter({ text: `${base ? base + " · " : ""}TAG:NOTICE` });
+    }
+    return { ...payload, embeds: [e] };
+  }
+  return payload; // 텍스트만 보낼 경우는 태그 미적용(임베드 권장)
+}
+
 async function upsertNotice(channel, payload) {
-  // 이전 공지 지우고 하나만 유지
+  payload = ensureNoticeTag(payload);
   const prev = noticeStore.get(channel.id);
   if (prev?.messageId) {
-    try {
-      const m = await channel.messages.fetch(prev.messageId);
-      await m.delete().catch(()=>{});
-    } catch {}
+    try { const m = await channel.messages.fetch(prev.messageId); await m.delete().catch(()=>{}); } catch {}
   }
   const sent = await channel.send(payload);
   noticeStore.set(channel.id, { messageId: sent.id, payload });
-  // 과거 공지 싹 정리
-  await sweepOnce(channel, sent.id);
+  await sweepOnce(channel, sent.id, "NOTICE");
   return sent;
 }
 
 async function editNotice(channel, newPayload) {
+  newPayload = ensureNoticeTag(newPayload);
   const saved = noticeStore.get(channel.id);
   if (saved?.messageId) {
     try {
       const m = await channel.messages.fetch(saved.messageId);
       await m.edit(newPayload);
       noticeStore.set(channel.id, { messageId: m.id, payload: newPayload });
-      await sweepOnce(channel, m.id);
+      await sweepOnce(channel, m.id, "NOTICE");
       return m;
     } catch {
-      // 기존 메시지가 없으면 새로 생성
       return upsertNotice(channel, newPayload);
     }
   } else {
@@ -121,20 +131,41 @@ async function editNotice(channel, newPayload) {
 async function deleteNotice(channel) {
   const saved = noticeStore.get(channel.id);
   if (saved?.messageId) {
-    try {
-      const m = await channel.messages.fetch(saved.messageId);
-      await m.delete().catch(()=>{});
-    } catch {}
+    try { const m = await channel.messages.fetch(saved.messageId); await m.delete().catch(()=>{}); } catch {}
   }
   noticeStore.delete(channel.id);
 }
 
-// ===== 스티키(팔로우 모드) =====
+/* ------------------------------------------------------------------ */
+/*                             스티키(팔로우)                           */
+/* ------------------------------------------------------------------ */
+
 function sanitizeEmbed(baseEmbed) {
   const e = EmbedBuilder.from(baseEmbed);
   e.setFooter(null);
   e.setTimestamp(null);
   return e;
+}
+
+// entry.payload/embed 에 TAG:STICKY 푸터 주입
+function tagStickyPayload(entry) {
+  if (entry?.payload?.embeds?.length) {
+    const e = EmbedBuilder.from(entry.payload.embeds[0]);
+    const base = e.data.footer?.text || "";
+    if (!base.includes("TAG:STICKY")) {
+      e.setFooter({ text: `${base ? base + " · " : ""}TAG:STICKY` });
+    }
+    return { ...entry.payload, embeds: [e] };
+  }
+  if (entry?.embed) {
+    const e = sanitizeEmbed(entry.embed);
+    const base = e.data.footer?.text || "";
+    if (!base.includes("TAG:STICKY")) {
+      e.setFooter({ text: `${base ? base + " · " : ""}TAG:STICKY` });
+    }
+    return { embeds: [e] };
+  }
+  return entry?.payload || {};
 }
 
 async function refreshSticky(channel, entry) {
@@ -147,39 +178,35 @@ async function refreshSticky(channel, entry) {
 
   entry._lock = true;
   try {
+    const payload = tagStickyPayload(entry);
+
     if (entry.mode === "follow") {
-      // follow는 항상 맨 아래로 재전송
+      // 항상 맨 아래로 재전송
       if (entry.messageId) {
-        try {
-          const old = await channel.messages.fetch(entry.messageId);
-          await old.delete().catch(() => {});
-        } catch {}
+        try { const old = await channel.messages.fetch(entry.messageId); await old.delete().catch(()=>{}); } catch {}
       }
-      const payload = entry.payload || { embeds: [sanitizeEmbed(entry.embed)] };
       const sent = await channel.send(payload);
       entry.messageId = sent.id;
       entry._lastMove = Date.now();
-      await sweepOnce(channel, sent.id);
+      await sweepOnce(channel, sent.id, "STICKY"); // 스티키만 정리
       return;
     }
 
-    // 고정형(편집) 모드
+    // 편집형(고정)
     if (entry.messageId) {
       try {
         const msg = await channel.messages.fetch(entry.messageId);
-        const payload = entry.payload || { embeds: [sanitizeEmbed(entry.embed)] };
         await msg.edit(payload);
         entry._lastMove = Date.now();
-        await sweepOnce(channel, msg.id);
+        await sweepOnce(channel, msg.id, "STICKY");
         return;
       } catch {}
     }
 
-    const payload = entry.payload || { embeds: [sanitizeEmbed(entry.embed)] };
     const sent = await channel.send(payload);
     entry.messageId = sent.id;
     entry._lastMove = Date.now();
-    await sweepOnce(channel, sent.id);
+    await sweepOnce(channel, sent.id, "STICKY");
 
   } catch (e) {
     console.error("sticky refresh error:", e?.message || e);
@@ -204,7 +231,10 @@ client.on(Events.MessageCreate, async (msg) => {
   }
 });
 
-// ===== 커맨드 로딩 =====
+/* ------------------------------------------------------------------ */
+/*                           커맨드 로딩/주입                           */
+/* ------------------------------------------------------------------ */
+
 client.commands = new Collection();
 try {
   const commandsPath = path.join(__dirname, "..", "commands");
@@ -220,28 +250,26 @@ try {
   console.error("[commands load error]", e?.message || e);
 }
 
-// ===== 인터랙션 =====
 client.on(Events.InteractionCreate, async (i) => {
   try {
     if (i.isChatInputCommand()) {
       const command = client.commands.get(i.commandName);
       if (!command) return;
 
-      // 명령어에서 바로 쓸 수 있게 유틸 주입
+      // 명령어에서 바로 사용 가능한 유틸 주입
       i._ari = {
-        // 공지: 단일 유지 보장(여기만 쓰면 중복 안 생김)
         notice: {
-          upsert: upsertNotice,   // await i._ari.notice.upsert(i.channel, payload)
-          edit:   editNotice,     // await i._ari.notice.edit(i.channel, payload)
-          del:    deleteNotice,   // await i._ari.notice.del(i.channel)
+          upsert: upsertNotice,
+          edit:   editNotice,
+          del:    deleteNotice,
           store:  noticeStore
         },
-        // 스티키
         stickyStore,
         refreshSticky,
-        // 모집
-        recruitStates, rowFor, buildRecruitEmbed, canClose,
-        // 기타
+        recruitStates,
+        rowFor,
+        buildRecruitEmbed,
+        canClose,
         sweepOnce
       };
 
@@ -256,7 +284,10 @@ client.on(Events.InteractionCreate, async (i) => {
   }
 });
 
-// ===== READY / 로그인 =====
+/* ------------------------------------------------------------------ */
+/*                              READY / 로그인                         */
+/* ------------------------------------------------------------------ */
+
 client.once(Events.ClientReady, (c) => {
   console.log(`[READY] AriBot logged in as ${c.user.tag}`);
 });
