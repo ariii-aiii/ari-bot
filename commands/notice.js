@@ -64,7 +64,7 @@ module.exports = {
        .addStringOption(o => o.setName("color").setNameLocalizations({ ko:"컬러" })
          .setDescription("색상 (예: #CDC1FF, pink 등)"))
        .addBooleanOption(o => o.setName("sticky").setNameLocalizations({ ko:"스티키" })
-         .setDescription("이번 공지를 스티키로(기본: 켬)").setRequired(false)) // ← 기본 켬 느낌으로 안내
+         .setDescription("이번 공지를 스티키로(기본: 켬)").setRequired(false))
     )
 
     // 수정
@@ -79,14 +79,15 @@ module.exports = {
        .addStringOption(o => o.setName("color").setNameLocalizations({ ko:"컬러" })
          .setDescription("새 컬러"))
        .addBooleanOption(o => o.setName("sticky").setNameLocalizations({ ko:"스티키" })
-         .setDescription("이 공지를 스티키로 전환/유지")))
+         .setDescription("이 공지를 스티키로 전환/유지"))
     )
 
     // 삭제
     .addSubcommand(s =>
       s.setName("delete").setNameLocalizations({ ko: "삭제" })
        .setDescription("Delete current notice")
-       .setDescriptionLocalizations({ ko: "현재 공지 삭제" }))
+       .setDescriptionLocalizations({ ko: "현재 공지 삭제" })
+    )
 
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
@@ -95,7 +96,7 @@ module.exports = {
 
     const sub = i.options.getSubcommand();
     const ch  = i.channel;
-    const { notice, stickyStore } = i._ari; // refreshSticky 즉시 호출 안 함 (중복 방지)
+    const { notice, stickyStore } = i._ari; // refreshSticky 즉시 호출 안 함(중복 방지)
 
     // 공통: 이전 공지/스티키 안전 삭제
     async function purgePrev() {
@@ -142,7 +143,7 @@ module.exports = {
         const sent = await ch.send({ embeds: [sEmbed] });
         stickyStore.set(ch.id, {
           enabled   : true,
-          mode      : "follow",          // 이후에 필요하면 따라오게
+          mode      : "follow",          // 이후 필요시 따라오게
           payload   : { embeds: [sEmbed] },
           messageId : sent.id,
           cooldownMs: 1500
@@ -191,11 +192,9 @@ module.exports = {
         return i.editReply("✏️ 공지 수정 완료! (스티키로 전환)");
       } else {
         // ✅ 일반 공지만 유지: 스티키는 제거
-        // 공지 있으면 수정, 없으면 upsert
         try { await notice.edit(ch, { embeds: [base] }); }
         catch { await notice.upsert(ch, { embeds: [base] }); }
 
-        // 스티키 정리
         const entry = stickyStore.get(ch.id);
         if (entry?.messageId) {
           try { const m = await ch.messages.fetch(entry.messageId); await m.delete().catch(()=>{}); } catch {}
