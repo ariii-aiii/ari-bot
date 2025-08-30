@@ -305,13 +305,19 @@ client.on(Events.InteractionCreate, async (i) => {
     /* --------- 🔘 버튼 먼저 처리 --------- */
     if (i.isButton()) {
       // customId: "join:<msgId>" | "leave:<msgId>" | "list:<msgId>" | "close:<msgId>" | "open:<msgId>"
-      const m = i.customId.match(/^(join|leave|list|close|open):(\d+)$/);
-      if (!m) return;
-      const action = m[1];
-      const msgId  = m[2];
+      // 숫자만 말고 전부 허용
+    const m = i.customId.match(/^(join|leave|list|close|open):(.+)$/);
+    if (!m) return;
 
-      // 3초 제한 방지(ACK)
-      await i.deferUpdate();
+    const action = m[1];
+    let msgId = m[2];
+
+    // 등록 직후 'temp'일 수 있으니 실제 메시지 ID로 교체
+    if (msgId === 'temp') msgId = i.message.id;
+
+    // 3초 타임아웃 방지
+    await i.deferUpdate();
+
 
       // 상태 확보: 없으면 임베드로부터 복구
       if (!recruitStates.has(msgId)) {
