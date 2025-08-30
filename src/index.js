@@ -5,7 +5,8 @@ require('./boot-check');
 
 const {
   Client, GatewayIntentBits, Events,
-  ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, Collection
+  ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, Collection,
+  MessageFlags, // ✅ 에페메럴 경고 제거용
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
@@ -20,12 +21,17 @@ const client = new Client({
 });
 
 // ===== 상태 저장소 =====
-const recruitStates = new Map();   // 모집 상태
-const stickyStore   = new Map();   // 스티키(팔로우) 상태: channelId -> entry({enabled, mode, payload/embed, ...})
+const recruitStates = new Map();   // 모집 상태 (messageId -> state)
+const stickyStore   = new Map();   // 스티키(팔로우) 상태: channelId -> entry
 const noticeStore   = new Map();   // 공지 단일 유지: channelId -> { messageId, payload }
 
 // ===== 공통 유틸 =====
 async function safeReply(i, payload) {
+  // deprecated인 ephemeral:true 대신 flags로 안내
+  if (payload && payload.ephemeral) {
+    payload.flags = MessageFlags.Ephemeral;
+    delete payload.ephemeral;
+  }
   if (i.replied || i.deferred) return i.followUp(payload);
   return i.reply(payload);
 }
@@ -49,11 +55,11 @@ function rowFor(messageId, isClosed) {
 function buildRecruitEmbed(st) {
   const lock  = st.isClosed ? "🔒 " : "";
   const title = `${lock}${st.title} - 정원 ${st.cap}명`;
-  const memberArr = [...st.members];
+  const memberArr = [...(st.members || new Set())];
   const lines = memberArr.map((uid, i) => `${i + 1}. <@${uid}>`);
   let desc = `현재 인원: **${memberArr.length}/${st.cap}**`;
   if (lines.length) desc += `\n\n${lines.join("\n")}`;
-  const waitArr = [...st.waitlist];
+  const waitArr = [...(st.waitlist || new Set())];
   if (waitArr.length) {
     const wlines = waitArr.map((uid, i) => `${i + 1}. <@${uid}>`);
     desc += `\n\n**예비자 (${waitArr.length})**\n\n${wlines.join("\n")}`;
@@ -62,7 +68,7 @@ function buildRecruitEmbed(st) {
     const when = new Date(st.closedAt || Date.now()).toLocaleString("ko-KR", { hour12: false });
     desc += `\n\n🔒 **마감됨 – 마감자:** <@${st.closedBy || st.hostId}>  ${when}`;
   }
-  const colorHex = (process.env.NOTICE_COLOR || "#CDC1FF").replace(/\\n/g, '\n');
+  const colorHex = (process.env.NOTICE_COLOR || "#CDC1FF").replace('#','');
   const colorInt = parseInt(colorHex, 16);
   return new EmbedBuilder().setTitle(title).setDescription(desc).setColor(isNaN(colorInt) ? 0xCDC1FF : colorInt);
 }
@@ -169,7 +175,7 @@ function tagStickyPayload(entry) {
   return entry?.payload || {};
 }
 
-/* ✅ 추가: 최근 공지(역할신청/공지/📢) 찾아서 스티키 payload 생성 */
+/* ✅ 최근 공지 찾아서 스티키 payload 자동 생성 */
 async function findLatestNoticePayload(channel) {
   try {
     const fetched = await channel.messages.fetch({ limit: 30 });
@@ -178,9 +184,7 @@ async function findLatestNoticePayload(channel) {
       const emb = m.embeds?.[0];
       const title = emb?.title || "";
       const footer = emb?.footer?.text || "";
-      const isNotice =
-        footer.includes("TAG:NOTICE") || /공지|역할신청|📢/i.test(title);
-
+      const isNotice = footer.includes("TAG:NOTICE") || /공지|역할신청|📢/i.test(title);
       if (isNotice) {
         const e = EmbedBuilder.from(emb || new EmbedBuilder());
         const base = e.data.footer?.text || "";
@@ -194,7 +198,7 @@ async function findLatestNoticePayload(channel) {
   return null;
 }
 
-/* ✅ 추가: 스티키 엔트리 없으면 최근 공지로 자동 켜기 */
+/* ✅ 스티키 엔트리 없으면 최근 공지로 자동 켜기 */
 async function ensureStickyIfMissing(channel) {
   if (stickyStore.has(channel.id)) return;
   const payload = await findLatestNoticePayload(channel);
@@ -226,18 +230,16 @@ async function refreshSticky(channel, entry) {
     const payload = tagStickyPayload(entry);
 
     if (entry.mode === "follow") {
-      // 항상 맨 아래로 재전송
       if (entry.messageId) {
         try { const old = await channel.messages.fetch(entry.messageId); await old.delete().catch(()=>{}); } catch {}
       }
       const sent = await channel.send(payload);
       entry.messageId = sent.id;
       entry._lastMove = Date.now();
-      await sweepOnce(channel, sent.id, "STICKY"); // 스티키만 정리
+      await sweepOnce(channel, sent.id, "STICKY");
       return;
     }
 
-    // 편집형(고정)
     if (entry.messageId) {
       try {
         const msg = await channel.messages.fetch(entry.messageId);
@@ -263,17 +265,12 @@ async function refreshSticky(channel, entry) {
 // ===== 메시지 이벤트(팔로우 스티키) =====
 client.on(Events.MessageCreate, async (msg) => {
   if (msg.author.bot || !msg.inGuild()) return;
-
-  // ✅ 자동 보정: 스티키 엔트리 없으면 최근 공지로 자동 켜기
   await ensureStickyIfMissing(msg.channel);
-
   const entry = stickyStore.get(msg.channelId);
   if (entry?.enabled && entry.mode === "follow") {
     try {
       if (entry.debounceTimer) clearTimeout(entry.debounceTimer);
-      entry.debounceTimer = setTimeout(() => {
-        refreshSticky(msg.channel, entry);
-      }, 1200);
+      entry.debounceTimer = setTimeout(() => refreshSticky(msg.channel, entry), 1200);
     } catch (e) {
       console.error("[sticky debounce error]", e?.message || e);
     }
@@ -299,20 +296,96 @@ try {
   console.error("[commands load error]", e?.message || e);
 }
 
+/* ------------------------------------------------------------------ */
+/*                     상호작용(버튼 + 슬래시) 라우팅                   */
+/* ------------------------------------------------------------------ */
+
 client.on(Events.InteractionCreate, async (i) => {
   try {
+    /* --------- 🔘 버튼 먼저 처리 --------- */
+    if (i.isButton()) {
+      // customId: "join:<msgId>" | "leave:<msgId>" | "list:<msgId>" | "close:<msgId>" | "open:<msgId>"
+      const m = i.customId.match(/^(join|leave|list|close|open):(\d+)$/);
+      if (!m) return;
+      const action = m[1];
+      const msgId  = m[2];
+
+      // 3초 제한 방지(ACK)
+      await i.deferUpdate();
+
+      // 상태 확보: 없으면 임베드로부터 복구
+      if (!recruitStates.has(msgId)) {
+        const emb = i.message.embeds?.[0];
+        let cap = 16, isClosed = false, title = "모집";
+        if (emb?.title) {
+          const t = emb.title;
+          isClosed = t.trim().startsWith("🔒");
+          const mCap = t.match(/정원\s+(\d+)/);
+          if (mCap) cap = parseInt(mCap[1], 10);
+          title = t.replace(/^🔒\s*/, "").replace(/\s*-\s*정원.*$/, "").trim() || "모집";
+        }
+        const members = new Set();
+        const desc = emb?.description || "";
+        for (const mm of desc.matchAll(/^\s*\d+\.\s*<@(\d+)>/gm)) members.add(mm[1]);
+        recruitStates.set(msgId, { cap, title, members, waitlist: new Set(), isClosed, hostId: i.user.id });
+      }
+
+      const st = recruitStates.get(msgId);
+
+      // 액션 처리
+      if (action === "join") {
+        if (st.isClosed) {
+          await i.followUp({ content: "🔒 이미 마감된 모집이에요.", flags: MessageFlags.Ephemeral });
+        } else if (st.members.has(i.user.id) || st.waitlist.has(i.user.id)) {
+          await i.followUp({ content: "이미 참가/대기열에 있어요.", flags: MessageFlags.Ephemeral });
+        } else if (st.members.size < st.cap) {
+          st.members.add(i.user.id);
+        } else {
+          st.waitlist.add(i.user.id);
+          await i.followUp({ content: "정원이 가득이라 **대기열**에 올렸어요.", flags: MessageFlags.Ephemeral });
+        }
+      }
+
+      if (action === "leave") {
+        st.members.delete(i.user.id);
+        // 대기열 승급
+        const next = [...st.waitlist][0];
+        if (next) { st.waitlist.delete(next); st.members.add(next); }
+      }
+
+      if (action === "list") {
+        const list = [...st.members].map((u, n) => `${n + 1}. <@${u}>`).join("\n") || "아무도 없음";
+        const wait = [...st.waitlist].map((u, n) => `${n + 1}. <@${u}>`).join("\n");
+        await i.followUp({
+          content: `현재 인원 (${st.members.size}/${st.cap})\n${list}` + (wait ? `\n\n예비자\n${wait}` : ""),
+          flags: MessageFlags.Ephemeral
+        });
+      }
+
+      if (action === "close" || action === "open") {
+        if (!canClose(i)) {
+          await i.followUp({ content: "⛔ 마감/재오픈 권한이 없어요.", flags: MessageFlags.Ephemeral });
+        } else {
+          st.isClosed = (action === "close");
+          st.closedBy = i.user.id;
+          st.closedAt = Date.now();
+        }
+      }
+
+      // 원본 메시지 업데이트
+      const embed = buildRecruitEmbed(st);
+      await i.message.edit({ embeds: [embed], components: [rowFor(msgId, st.isClosed)] });
+      return; // 버튼 처리 끝
+    }
+
+    /* --------- 💬 슬래시 커맨드 --------- */
     if (i.isChatInputCommand()) {
       const command = client.commands.get(i.commandName);
       if (!command) return;
 
       // 명령어에서 바로 사용 가능한 유틸 주입
       i._ari = {
-        notice: {
-          upsert: upsertNotice,
-          edit:   editNotice,
-          del:    deleteNotice,
-          store:  noticeStore
-        },
+        notice: { upsert: upsertNotice, edit: editNotice, del: deleteNotice, store: noticeStore },
         stickyStore,
         refreshSticky,
         recruitStates,
@@ -325,10 +398,13 @@ client.on(Events.InteractionCreate, async (i) => {
       await command.execute(i);
     }
   } catch (err) {
-    console.error(err);
+    console.error("[interaction error]", err);
     try {
-      if (i.deferred && !i.replied) await i.editReply("에러가 났어요 ㅠㅠ");
-      else await safeReply(i, { content: "에러가 났어요 ㅠㅠ", ephemeral: true });
+      if (i.deferred && !i.replied) {
+        await i.followUp({ content: "⚠️ 처리 중 오류가 났어요.", flags: MessageFlags.Ephemeral });
+      } else if (!i.replied) {
+        await i.reply({ content: "⚠️ 처리 중 오류가 났어요.", flags: MessageFlags.Ephemeral });
+      }
     } catch {}
   }
 });
