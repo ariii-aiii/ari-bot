@@ -314,6 +314,9 @@ client.on(Events.InteractionCreate, async (i) => {
 
     // 등록 직후 'temp'일 수 있으니 실제 메시지 ID로 교체
     if (msgId === 'temp') msgId = i.message.id;
+      
+    // 👇 여기 추가  
+    console.log('[BTN]', i.customId, '→ using msgId:', msgId);
 
     // 3초 타임아웃 방지
     await i.deferUpdate();
