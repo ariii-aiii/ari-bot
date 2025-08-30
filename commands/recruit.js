@@ -1,10 +1,16 @@
-const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
+// commands/recruit.js
+const {
+  SlashCommandBuilder,
+  EmbedBuilder,
+  MessageFlags,            // ✅ 에페메럴 경고 제거용
+} = require("discord.js");
+
 const CAP_CHOICES = [16, 20, 28, 32, 40, 56, 64].map(n => ({ name: `${n}`, value: n }));
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("recruit")
-    .setNameLocalizations({ ko: "아리모집" }) // 공백 불가라 “아리모집”으로 표기
+    .setNameLocalizations({ ko: "아리모집" })
     .setDescription("Create/manage recruit posts with buttons")
     .setDescriptionLocalizations({ ko: "버튼 모집 등록/수정/마감" })
 
@@ -46,12 +52,22 @@ module.exports = {
       const title = interaction.options.getString("title", true);
       const cap = interaction.options.getInteger("cap", true);
 
-      const st = { cap, hostId: interaction.user.id, members: new Set(), waitlist: new Set(), isClosed: false, title };
-      const msg = await interaction.reply({
+      const st = {
+        cap,
+        hostId: interaction.user.id,
+        members: new Set(),
+        waitlist: new Set(),
+        isClosed: false,
+        title
+      };
+
+      // ⚠️ fetchReply: true (deprecated) → 안전한 2단계 방식
+      await interaction.reply({
         embeds: [buildRecruitEmbed(st)],
-        components: [rowFor("temp", false)],
-        fetchReply: true
+        components: [rowFor("temp", false)]
       });
+      const msg = await interaction.fetchReply();   // ✅ 실제 메시지 객체
+
       await msg.edit({ components: [rowFor(msg.id, false)] });
       recruitStates.set(msg.id, st);
       return;
@@ -64,14 +80,17 @@ module.exports = {
       const newCap = interaction.options.getInteger("cap");
 
       if (newTitle == null && newCap == null) {
-        return interaction.reply({ content: "수정할 항목이 없어요. (내용/정원 중 1개 이상)", ephemeral: true });
+        return interaction.reply({
+          content: "수정할 항목이 없어요. (내용/정원 중 1개 이상)",
+          flags: MessageFlags.Ephemeral   // ✅ 에페메럴 최신 방식
+        });
       }
 
       try {
         const msg = await interaction.channel.messages.fetch(id);
         let st = recruitStates.get(id);
 
-        // 상태 없으면 최소 복구
+        // 상태 없으면 메시지 임베드로부터 최소 복구
         if (!st) {
           const emb = msg.embeds?.[0];
           let cap = 16, isClosed = false, baseTitle = "모집";
@@ -101,10 +120,20 @@ module.exports = {
           }
         }
 
-        await msg.edit({ embeds: [buildRecruitEmbed(st)], components: [rowFor(id, st.isClosed)] });
-        return interaction.reply({ content: "✏️ 모집 수정 완료!", ephemeral: true });
+        await msg.edit({
+          embeds: [buildRecruitEmbed(st)],
+          components: [rowFor(id, st.isClosed)]
+        });
+
+        return interaction.reply({
+          content: "✏️ 모집 수정 완료!",
+          flags: MessageFlags.Ephemeral
+        });
       } catch {
-        return interaction.reply({ content: "메시지ID를 못 찾았어요 ㅠㅠ", ephemeral: true });
+        return interaction.reply({
+          content: "메시지ID를 못 찾았어요 ㅠㅠ",
+          flags: MessageFlags.Ephemeral
+        });
       }
     }
   }
