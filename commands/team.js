@@ -15,14 +15,17 @@ module.exports = {
   async execute(interaction) {
     const desc = interaction.options.getString("설명");
 
-    // ✅ 반드시 음성 채널에 들어가 있어야 함
-    const voiceCh = interaction.member?.voice?.channel;
-    if (!voiceCh) {
-      return interaction.reply({
-        content: "❌ 음성 채널에 먼저 들어가야 `/팀` 명령을 쓸 수 있어요.",
-        ephemeral: true
-      });
-    }
+    const { MessageFlags } = require("discord.js");
+
+// ✅ 반드시 음성 채널에 들어가 있어야 함
+const voiceCh = interaction.member?.voice?.channel;
+if (!voiceCh) {
+  return interaction.reply({
+    content: "❌ 음성 채널에 먼저 들어가야 `/팀` 명령을 쓸 수 있어요.",
+    flags: MessageFlags.Ephemeral   // ✅ 이걸로 교체
+  });
+}
+
 
     const parentName = voiceCh.parent?.name ?? "미분류";
     const chName = voiceCh.name;
