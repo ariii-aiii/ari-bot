@@ -45,7 +45,11 @@ function canClose(i) {
 function rowFor(messageId, isClosed) {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`join:${messageId}`).setLabel("참가").setStyle(ButtonStyle.Success).setDisabled(isClosed),
-    new ButtonBuilder().setCustomId(`leave:${messageId}`).setLabel("취소").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`leave:${messageId}`)
+      .setLabel("취소")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(isClosed), // 🔒 마감 시 취소 버튼도 비활성화
     new ButtonBuilder().setCustomId(`list:${messageId}`).setLabel("목록").setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId(`${isClosed ? "open" : "close"}:${messageId}`)
       .setLabel(isClosed ? "재오픈" : "마감")
@@ -305,22 +309,20 @@ client.on(Events.InteractionCreate, async (i) => {
     /* --------- 🔘 버튼 먼저 처리 --------- */
     if (i.isButton()) {
       // customId: "join:<msgId>" | "leave:<msgId>" | "list:<msgId>" | "close:<msgId>" | "open:<msgId>"
-      // 숫자만 말고 전부 허용
-    const m = i.customId.match(/^(join|leave|list|close|open):(.+)$/);
-    if (!m) return;
+      const m = i.customId.match(/^(join|leave|list|close|open):(.+)$/);
+      if (!m) return;
 
-    const action = m[1];
-    let msgId = m[2];
+      const action = m[1];
+      let msgId = m[2];
 
-    // 등록 직후 'temp'일 수 있으니 실제 메시지 ID로 교체
-    if (msgId === 'temp') msgId = i.message.id;
-      
-    // 👇 여기 추가  
-    console.log('[BTN]', i.customId, '→ using msgId:', msgId);
+      // 등록 직후 'temp'일 수 있으니 실제 메시지 ID로 교체
+      if (msgId === 'temp') msgId = i.message.id;
 
-    // 3초 타임아웃 방지
-    await i.deferUpdate();
+      // 디버그
+      console.log('[BTN]', i.customId, '→ using msgId:', msgId);
 
+      // 3초 타임아웃 방지
+      await i.deferUpdate();
 
       // 상태 확보: 없으면 임베드로부터 복구
       if (!recruitStates.has(msgId)) {
@@ -356,10 +358,17 @@ client.on(Events.InteractionCreate, async (i) => {
       }
 
       if (action === "leave") {
-        st.members.delete(i.user.id);
-        // 대기열 승급
-        const next = [...st.waitlist][0];
-        if (next) { st.waitlist.delete(next); st.members.add(next); }
+        // 🔒 마감 상태면 취소 불가
+        if (st.isClosed) {
+          await i.followUp({ content: "❌ 마감된 모집은 취소할 수 없어요!", flags: MessageFlags.Ephemeral });
+        } else if (!st.members.has(i.user.id)) {
+          await i.followUp({ content: "❌ 참가자가 아니라서 취소할 수 없어요!", flags: MessageFlags.Ephemeral });
+        } else {
+          st.members.delete(i.user.id);
+          // 대기열 승급
+          const next = [...st.waitlist][0];
+          if (next) { st.waitlist.delete(next); st.members.add(next); }
+        }
       }
 
       if (action === "list") {
@@ -376,8 +385,13 @@ client.on(Events.InteractionCreate, async (i) => {
           await i.followUp({ content: "⛔ 마감/재오픈 권한이 없어요.", flags: MessageFlags.Ephemeral });
         } else {
           st.isClosed = (action === "close");
-          st.closedBy = i.user.id;
-          st.closedAt = Date.now();
+          if (st.isClosed) {
+            st.closedBy = i.user.id;
+            st.closedAt = Date.now();
+          } else {
+            delete st.closedBy;
+            delete st.closedAt;
+          }
         }
       }
 
