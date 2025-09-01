@@ -3,9 +3,15 @@ require('dotenv').config();
 require('../server');
 require('./boot-check');
 
-// === 전역 에러 핸들러(디버그 필수) ===
+// === 전역 에러 핸들러(꼭 넣자) ===
 process.on('unhandledRejection', (e) => console.error('[UNHANDLED REJECTION]', e));
 process.on('uncaughtException',  (e) => console.error('[UNCAUGHT EXCEPTION]', e));
+
+// === 부팅 환경 체크 로그 ===
+const _tk = (process.env.BOT_TOKEN || '');
+console.log('[BOOT] BOT_TOKEN length =', _tk.length, _tk ? '(ok)' : '(missing)');
+console.log('[BOOT] CLIENT_ID =', process.env.CLIENT_ID || '(missing)');
+
 
 
 const {
@@ -477,7 +483,18 @@ i.reply = (payload = {}) => {
 client.once(Events.ClientReady, (c) => {
   console.log(`[READY] AriBot logged in as ${c.user.tag}`);
 });
+
+// 로그인 완료 감시: 20초 안에 READY가 안 뜨면 경고 로그
+let readySeen = false;
+client.once(Events.ClientReady, () => { readySeen = true; });
+setTimeout(() => {
+  if (!readySeen) {
+    console.error('[WARN] Discord READY not fired within 20s. Check BOT_TOKEN/Intents/Network.');
+  }
+}, 20000);
+
 client.login(process.env.BOT_TOKEN).catch((err) => {
   console.error('[LOGIN FAIL]', err?.code || err?.message || err);
   process.exit(1);
 });
+
