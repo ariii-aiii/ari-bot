@@ -406,7 +406,17 @@ client.on(Events.InteractionCreate, async (i) => {
       const command = client.commands.get(i.commandName);
       if (!command) return;
 
-      // 명령어에서 바로 사용 가능한 유틸 주입
+      // ✅ 선(先) deferReply로 타임아웃 방지 (에페메럴)
+      if (!i.deferred && !i.replied) {
+        try { await i.deferReply({ ephemeral: true }); } catch {}
+      }
+
+      // ✅ 레거시 호환: i.reply() 호출을 followUp으로 우회
+      const _origReply = i.reply?.bind(i);
+      i.reply = (payload) => i.followUp(payload);
+      i.safeReply = (payload) => safeReply(i, payload);
+
+      // 유틸 주입
       i._ari = {
         notice: { upsert: upsertNotice, edit: editNotice, del: deleteNotice, store: noticeStore },
         stickyStore,
@@ -418,7 +428,23 @@ client.on(Events.InteractionCreate, async (i) => {
         sweepOnce
       };
 
-      await command.execute(i);
+      try {
+        await command.execute(i);
+        // ✅ 커맨드가 아무 메시지도 안 보냈다면 기본 완료 메시지
+        if (i.deferred && !i.replied) {
+          await i.editReply("✅ 처리 완료");
+        }
+      } catch (err) {
+        console.error("[command error]", err);
+        try {
+          if (i.deferred && !i.replied) {
+            await i.editReply("⚠️ 처리 중 오류가 발생했어요.");
+          } else if (!i.replied) {
+            await i.followUp({ content: "⚠️ 처리 중 오류가 발생했어요.", flags: MessageFlags.Ephemeral });
+          }
+        } catch {}
+      }
+      return;
     }
   } catch (err) {
     console.error("[interaction error]", err);
