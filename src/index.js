@@ -3,6 +3,11 @@ require('dotenv').config();
 require('../server');
 require('./boot-check');
 
+// === 전역 에러 핸들러(디버그 필수) ===
+process.on('unhandledRejection', (e) => console.error('[UNHANDLED REJECTION]', e));
+process.on('uncaughtException',  (e) => console.error('[UNCAUGHT EXCEPTION]', e));
+
+
 const {
   Client, GatewayIntentBits, Events,
   ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, Collection,
