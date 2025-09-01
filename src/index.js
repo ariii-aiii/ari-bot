@@ -12,12 +12,10 @@ const _tk = (process.env.BOT_TOKEN || '');
 console.log('[BOOT] BOT_TOKEN length =', _tk.length, _tk ? '(ok)' : '(missing)');
 console.log('[BOOT] CLIENT_ID =', process.env.CLIENT_ID || '(missing)');
 
-
-
 const {
   Client, GatewayIntentBits, Events,
   ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, Collection,
-  MessageFlags, // ✅ 에페메럴 경고 제거용
+  MessageFlags,
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
@@ -27,18 +25,17 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildVoiceStates,   // ✅ 음성채널 감지
+    GatewayIntentBits.GuildVoiceStates,
   ]
 });
 
 // ===== 상태 저장소 =====
-const recruitStates = new Map();   // 모집 상태 (messageId -> state)
-const stickyStore   = new Map();   // 스티키(팔로우) 상태: channelId -> entry
-const noticeStore   = new Map();   // 공지 단일 유지: channelId -> { messageId, payload }
+const recruitStates = new Map();
+const stickyStore   = new Map();
+const noticeStore   = new Map();
 
 // ===== 공통 유틸 =====
 async function safeReply(i, payload) {
-  // deprecated인 ephemeral:true 대신 flags로 안내
   if (payload && payload.ephemeral) {
     payload.flags = MessageFlags.Ephemeral;
     delete payload.ephemeral;
@@ -56,11 +53,7 @@ function canClose(i) {
 function rowFor(messageId, isClosed) {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`join:${messageId}`).setLabel("참가").setStyle(ButtonStyle.Success).setDisabled(isClosed),
-    new ButtonBuilder()
-      .setCustomId(`leave:${messageId}`)
-      .setLabel("취소")
-      .setStyle(ButtonStyle.Secondary)
-      .setDisabled(isClosed), // 🔒 마감 시 취소 버튼도 비활성화
+    new ButtonBuilder().setCustomId(`leave:${messageId}`).setLabel("취소").setStyle(ButtonStyle.Secondary).setDisabled(isClosed),
     new ButtonBuilder().setCustomId(`list:${messageId}`).setLabel("목록").setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId(`${isClosed ? "open" : "close"}:${messageId}`)
       .setLabel(isClosed ? "재오픈" : "마감")
@@ -91,8 +84,6 @@ function buildRecruitEmbed(st) {
 /* ------------------------------------------------------------------ */
 /*                           공지(단일 유지)                           */
 /* ------------------------------------------------------------------ */
-
-// TAG 구분형 청소: 같은 TAG만 지움
 async function sweepOnce(channel, keepId, tag) {
   try {
     const fetched = await channel.messages.fetch({ limit: 30 });
@@ -106,8 +97,6 @@ async function sweepOnce(channel, keepId, tag) {
     }
   } catch {}
 }
-
-// payload(embeds[0])에 TAG:NOTICE 푸터 주입
 function ensureNoticeTag(payload) {
   if (payload?.embeds?.length) {
     const e = EmbedBuilder.from(payload.embeds[0]);
@@ -117,9 +106,8 @@ function ensureNoticeTag(payload) {
     }
     return { ...payload, embeds: [e] };
   }
-  return payload; // 텍스트만 보낼 경우는 태그 미적용(임베드 권장)
+  return payload;
 }
-
 async function upsertNotice(channel, payload) {
   payload = ensureNoticeTag(payload);
   const prev = noticeStore.get(channel.id);
@@ -131,7 +119,6 @@ async function upsertNotice(channel, payload) {
   await sweepOnce(channel, sent.id, "NOTICE");
   return sent;
 }
-
 async function editNotice(channel, newPayload) {
   newPayload = ensureNoticeTag(newPayload);
   const saved = noticeStore.get(channel.id);
@@ -149,7 +136,6 @@ async function editNotice(channel, newPayload) {
     return upsertNotice(channel, newPayload);
   }
 }
-
 async function deleteNotice(channel) {
   const saved = noticeStore.get(channel.id);
   if (saved?.messageId) {
@@ -161,15 +147,12 @@ async function deleteNotice(channel) {
 /* ------------------------------------------------------------------ */
 /*                             스티키(팔로우)                           */
 /* ------------------------------------------------------------------ */
-
 function sanitizeEmbed(baseEmbed) {
   const e = EmbedBuilder.from(baseEmbed);
   e.setFooter(null);
   e.setTimestamp(null);
   return e;
 }
-
-// entry.payload/embed 에 TAG:STICKY 푸터 주입
 function tagStickyPayload(entry) {
   if (entry?.payload?.embeds?.length) {
     const e = EmbedBuilder.from(entry.payload.embeds[0]);
@@ -189,8 +172,6 @@ function tagStickyPayload(entry) {
   }
   return entry?.payload || {};
 }
-
-/* ✅ 최근 공지 찾아서 스티키 payload 자동 생성 */
 async function findLatestNoticePayload(channel) {
   try {
     const fetched = await channel.messages.fetch({ limit: 30 });
@@ -212,8 +193,6 @@ async function findLatestNoticePayload(channel) {
   } catch {}
   return null;
 }
-
-/* ✅ 스티키 엔트리 없으면 최근 공지로 자동 켜기 */
 async function ensureStickyIfMissing(channel) {
   if (stickyStore.has(channel.id)) return;
   const payload = await findLatestNoticePayload(channel);
@@ -231,7 +210,6 @@ async function ensureStickyIfMissing(channel) {
   stickyStore.set(channel.id, entry);
   await refreshSticky(channel, entry);
 }
-
 async function refreshSticky(channel, entry) {
   if (!entry) return;
   if (entry._lock) return;
@@ -295,7 +273,6 @@ client.on(Events.MessageCreate, async (msg) => {
 /* ------------------------------------------------------------------ */
 /*                           커맨드 로딩/주입                           */
 /* ------------------------------------------------------------------ */
-
 client.commands = new Collection();
 try {
   const commandsPath = path.join(__dirname, "..", "commands");
@@ -314,28 +291,20 @@ try {
 /* ------------------------------------------------------------------ */
 /*                     상호작용(버튼 + 슬래시) 라우팅                   */
 /* ------------------------------------------------------------------ */
-
 client.on(Events.InteractionCreate, async (i) => {
   try {
     /* --------- 🔘 버튼 먼저 처리 --------- */
     if (i.isButton()) {
-      // customId: "join:<msgId>" | "leave:<msgId>" | "list:<msgId>" | "close:<msgId>" | "open:<msgId>"
       const m = i.customId.match(/^(join|leave|list|close|open):(.+)$/);
       if (!m) return;
 
       const action = m[1];
       let msgId = m[2];
-
-      // 등록 직후 'temp'일 수 있으니 실제 메시지 ID로 교체
       if (msgId === 'temp') msgId = i.message.id;
 
-      // 디버그
       console.log('[BTN]', i.customId, '→ using msgId:', msgId);
-
-      // 3초 타임아웃 방지
       await i.deferUpdate();
 
-      // 상태 확보: 없으면 임베드로부터 복구
       if (!recruitStates.has(msgId)) {
         const emb = i.message.embeds?.[0];
         let cap = 16, isClosed = false, title = "모집";
@@ -354,7 +323,6 @@ client.on(Events.InteractionCreate, async (i) => {
 
       const st = recruitStates.get(msgId);
 
-      // 액션 처리
       if (action === "join") {
         if (st.isClosed) {
           await i.followUp({ content: "🔒 이미 마감된 모집이에요.", flags: MessageFlags.Ephemeral });
@@ -369,14 +337,12 @@ client.on(Events.InteractionCreate, async (i) => {
       }
 
       if (action === "leave") {
-        // 🔒 마감 상태면 취소 불가
         if (st.isClosed) {
           await i.followUp({ content: "❌ 마감된 모집은 취소할 수 없어요!", flags: MessageFlags.Ephemeral });
         } else if (!st.members.has(i.user.id)) {
           await i.followUp({ content: "❌ 참가자가 아니라서 취소할 수 없어요!", flags: MessageFlags.Ephemeral });
         } else {
           st.members.delete(i.user.id);
-          // 대기열 승급
           const next = [...st.waitlist][0];
           if (next) { st.waitlist.delete(next); st.members.add(next); }
         }
@@ -406,10 +372,9 @@ client.on(Events.InteractionCreate, async (i) => {
         }
       }
 
-      // 원본 메시지 업데이트
       const embed = buildRecruitEmbed(st);
       await i.message.edit({ embeds: [embed], components: [rowFor(msgId, st.isClosed)] });
-      return; // 버튼 처리 끝
+      return;
     }
 
     /* --------- 💬 슬래시 커맨드 --------- */
@@ -417,24 +382,22 @@ client.on(Events.InteractionCreate, async (i) => {
       const command = client.commands.get(i.commandName);
       if (!command) return;
 
-      // ✅ 선(先) deferReply로 타임아웃 방지 (에페메럴)
+      // ✅ 공통 deferReply: 공개로(에페메럴 금지) → 모집글은 전체공개로 올라감
       if (!i.deferred && !i.replied) {
-        try { await i.deferReply({ ephemeral: true }); } catch {}
+        try { await i.deferReply(); } catch {}
       }
 
-      // ✅ 에페메럴 호환 래퍼 (reply → followUp 변환 시 flags로 교체)
-const _origReply = i.reply?.bind(i);
-i.reply = (payload = {}) => {
-  if (payload && payload.ephemeral) {
-    payload = { ...payload, flags: MessageFlags.Ephemeral };
-    delete payload.ephemeral;
-  }
-  return i.followUp(payload);
-};
-
+      // ✅ reply 우회 래퍼: payload.ephemeral 지원
+      const _origReply = i.reply?.bind(i);
+      i.reply = (payload = {}) => {
+        if (payload && payload.ephemeral) {
+          payload = { ...payload, flags: MessageFlags.Ephemeral };
+          delete payload.ephemeral;
+        }
+        return i.followUp(payload);
+      };
       i.safeReply = (payload) => safeReply(i, payload);
 
-      // 유틸 주입
       i._ari = {
         notice: { upsert: upsertNotice, edit: editNotice, del: deleteNotice, store: noticeStore },
         stickyStore,
@@ -448,7 +411,6 @@ i.reply = (payload = {}) => {
 
       try {
         await command.execute(i);
-        // ✅ 커맨드가 아무 메시지도 안 보냈다면 기본 완료 메시지
         if (i.deferred && !i.replied) {
           await i.editReply("✅ 처리 완료");
         }
@@ -479,12 +441,11 @@ i.reply = (payload = {}) => {
 /* ------------------------------------------------------------------ */
 /*                              READY / 로그인                         */
 /* ------------------------------------------------------------------ */
-
 client.once(Events.ClientReady, (c) => {
   console.log(`[READY] AriBot logged in as ${c.user.tag}`);
 });
 
-// 로그인 완료 감시: 20초 안에 READY가 안 뜨면 경고 로그
+// 로그인 완료 감시
 let readySeen = false;
 client.once(Events.ClientReady, () => { readySeen = true; });
 setTimeout(() => {
@@ -497,4 +458,3 @@ client.login(process.env.BOT_TOKEN).catch((err) => {
   console.error('[LOGIN FAIL]', err?.code || err?.message || err);
   process.exit(1);
 });
-
