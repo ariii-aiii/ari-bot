@@ -411,9 +411,16 @@ client.on(Events.InteractionCreate, async (i) => {
         try { await i.deferReply({ ephemeral: true }); } catch {}
       }
 
-      // ✅ 레거시 호환: i.reply() 호출을 followUp으로 우회
-      const _origReply = i.reply?.bind(i);
-      i.reply = (payload) => i.followUp(payload);
+      // ✅ 에페메럴 호환 래퍼 (reply → followUp 변환 시 flags로 교체)
+const _origReply = i.reply?.bind(i);
+i.reply = (payload = {}) => {
+  if (payload && payload.ephemeral) {
+    payload = { ...payload, flags: MessageFlags.Ephemeral };
+    delete payload.ephemeral;
+  }
+  return i.followUp(payload);
+};
+
       i.safeReply = (payload) => safeReply(i, payload);
 
       // 유틸 주입
