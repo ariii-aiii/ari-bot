@@ -2,19 +2,25 @@
 require('dotenv').config();
 require('../server');
 
-console.log('[BOOT:A] index.js started');
+console.log('[BOOT] index.js started');
 
-const { Client, GatewayIntentBits, Events } = require('discord.js');
+const {
+  Client,
+  GatewayIntentBits,
+  Events,
+  REST,
+  Routes,
+} = require('discord.js');
 
-console.log('[BOOT:B] discord.js imported');
-
-// 5초마다 살아있음 표시(엔트리/파일 교체 여부 확인용)
-setInterval(() => console.log('[TICK] still running'), 5000);
-
+// ===== 1) 클라이언트 생성 (최소 인텐트) =====
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds], // 최소 Intent만
+  intents: [GatewayIntentBits.Guilds],
 });
 
+// 5초마다 살아있음 표시
+setInterval(() => console.log('[TICK] still running'), 5000);
+
+// ===== 2) 게이트웨이 디버그/상태 =====
 client.on('debug', (m) => {
   const s = String(m);
   if (
@@ -44,6 +50,7 @@ client.on('rateLimit', (info) => {
   console.warn('[GW] rateLimit', info);
 });
 
+// ===== 3) READY 워치독 =====
 let watchdog = setTimeout(() => {
   console.error('[WARN] READY not fired within 60s. Check BOT_TOKEN / Intents / Invite / Code Grant.');
 }, 60_000);
@@ -53,28 +60,33 @@ client.once(Events.ClientReady, (c) => {
   console.log(`[READY] Logged in as ${c.user.tag} (${c.user.id})`);
 });
 
-const { REST, Routes } = require('discord.js');
-const token = (process.env.BOT_TOKEN || '').trim();
-
-(async () => {
-  try {
-    const rest = new REST({ version: '10' }).setToken(token);
-    const me = await rest.get(Routes.user('@me'));
-    console.log('[REST] Bot account =', me.username, me.id);
-  } catch (e) {
-    console.error('[REST] FAIL', e);
-  }
-})();
-
-
-// 로그인
-const token = (process.env.BOT_TOKEN || '').trim();
-if (!token) {
+// ===== 4) 토큰/REST 프리플라이트 =====
+const TOKEN = (process.env.BOT_TOKEN || '').trim();
+if (!TOKEN) {
   console.error('[FATAL] BOT_TOKEN empty');
   process.exit(1);
 }
-console.log('[BOOT:C] trying login…');
-client.login(token).catch((err) => {
+
+(async () => {
+  try {
+    const rest = new REST({ version: '10' }).setToken(TOKEN);
+    const me = await rest.get(Routes.user('@me'));
+    console.log('[REST] Bot account =', `${me.username} (${me.id})`);
+    // 필요하면 초대 링크 확인
+    console.log(
+      '[INVITE]',
+      `https://discord.com/api/oauth2/authorize?client_id=${me.id}&permissions=8&scope=bot%20applications.commands`
+    );
+  } catch (e) {
+    console.error('[REST] FAIL', e?.status || '', e?.code || '', e?.message || e);
+    // REST가 아예 막히면 로그인도 실패 가능 → 종료
+    // process.exit(1);
+  }
+})();
+
+// ===== 5) 로그인 (단 한 번) =====
+console.log('[BOOT] Trying login…');
+client.login(TOKEN).catch((err) => {
   console.error('[LOGIN FAIL]', err?.code || err?.message || err);
   process.exit(1);
 });
