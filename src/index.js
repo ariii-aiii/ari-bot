@@ -539,6 +539,10 @@ async function autoRegisterOnBoot() {
 client.once(Events.ClientReady, () => { autoRegisterOnBoot(); });
 // === ⬆⬆⬆ 자동 등록 끝 ===
 
+client.on('debug', (m) => console.log('[GW-DEBUG]', m));
+client.on('shardDisconnect', (event, id) => console.warn(`[SHARD ${id}] disconnect`, event?.code));
+
+
 // (기존)
 // client.login(process.env.BOT_TOKEN).catch((err) => {
 
