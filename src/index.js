@@ -487,6 +487,19 @@ async function verifyToken() {
 }
 verifyToken();
 
+client.on('shardReady', (id, unavailable) => {
+  console.log(`[SHARD ${id}] ready. unavailable=${!!unavailable}`);
+});
+client.on('shardDisconnect', (event, id) => {
+  console.warn(`[SHARD ${id}] disconnect code=${event.code} wasClean=${event.wasClean}`);
+});
+client.on('shardError', (err, id) => {
+  console.error(`[SHARD ${id}] error:`, err?.message || err);
+});
+client.on('error', (err) => console.error('[CLIENT ERROR]', err?.message || err));
+client.on('warn', (msg) => console.warn('[CLIENT WARN]', msg));
+
+
 
 
 client.login(process.env.BOT_TOKEN).catch((err) => {
