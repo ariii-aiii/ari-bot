@@ -3,6 +3,46 @@ require('dotenv').config();
 require('../server');
 require('./boot-check');
 
+// ==== Quick net / token diagnostics ====
+const dns = require('dns');
+const https = require('https');
+const { REST, Routes } = require('discord.js');
+
+(async () => {
+  try {
+    const token = (process.env.BOT_TOKEN || '').trim();
+    if (!token) {
+      console.error('[DIAG] BOT_TOKEN is empty (env)');
+      process.exit(1);
+    }
+    console.log('[DIAG] BOT_TOKEN length:', token.length, 'startsWith:', token.slice(0, 3), 'endsWith:', token.slice(-3));
+
+    // 1) DNS 확인
+    await new Promise((res, rej) => dns.lookup('discord.com', (e, addr) => e ? rej(e) : (console.log('[DIAG] DNS discord.com ->', addr), res())));
+    await new Promise((res, rej) => dns.lookup('gateway.discord.gg', (e, addr) => e ? rej(e) : (console.log('[DIAG] DNS gateway.discord.gg ->', addr), res())));
+
+    // 2) HTTPS 연결 확인
+    await new Promise((res, rej) => {
+      const req = https.get('https://discord.com/api/v10/gateway', r => {
+        console.log('[DIAG] HTTPS GET /gateway status =', r.statusCode);
+        (r.statusCode >= 200 && r.statusCode < 400) ? res() : rej(new Error('bad status ' + r.statusCode));
+      });
+      req.on('error', rej);
+    });
+
+    // 3) REST 토큰 검증
+    const rest = new REST({ version: '10' }).setToken(token);
+    const me = await rest.get(Routes.user('@me'));
+    console.log('[DIAG] REST OK ->', `${me.username}#${me.discriminator} (${me.id})`);
+
+  } catch (e) {
+    console.error('[DIAG] FAILED:', e.message || e);
+    // 진단 실패면 바로 종료해서 왜 실패했는지 로그로 보자
+    process.exit(1);
+  }
+})();
+
+
 /* =========================
  * 기본 에러 핸들러
  * ========================= */
