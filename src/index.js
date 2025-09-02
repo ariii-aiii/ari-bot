@@ -469,7 +469,7 @@ const { REST, Routes } = require('discord.js');
 
 async function verifyToken() {
   const raw = process.env.BOT_TOKEN || "";
-  const token = raw.trim(); // 앞뒤 공백 제거 (복붙 때 공백 들어가면 망함)
+  const token = raw.trim(); // 복붙 시 공백/개행 제거
   if (!token) {
     console.error("[TOKEN] BOT_TOKEN is empty");
     process.exit(1);
@@ -481,11 +481,12 @@ async function verifyToken() {
     console.log(`[TOKEN OK] Bot = ${me.username}#${me.discriminator} (${me.id})`);
   } catch (e) {
     console.error("[TOKEN INVALID]", e?.status, e?.code, e?.message || e);
-    console.error("👉 디스코드 포털에서 새 토큰 복사해서 Render 환경변수 BOT_TOKEN에 붙여넣고 재배포하세요. 따옴표/공백 금지!");
+    console.error("👉 Discord 개발자 포털에서 새 토큰 발급 → Render 환경변수 BOT_TOKEN에 공백/따옴표 없이 붙여넣고 재배포");
     process.exit(1);
   }
 }
 verifyToken();
+
 
 client.on('shardReady', (id, unavailable) => {
   console.log(`[SHARD ${id}] ready. unavailable=${!!unavailable}`);
@@ -500,9 +501,10 @@ client.on('error', (err) => console.error('[CLIENT ERROR]', err?.message || err)
 client.on('warn', (msg) => console.warn('[CLIENT WARN]', msg));
 
 
-
+// 여기다가 토큰 검사 코드 + 게이트웨이 로그 코드 붙이기
 
 client.login(process.env.BOT_TOKEN).catch((err) => {
   console.error('[LOGIN FAIL]', err?.code || err?.message || err);
   process.exit(1);
 });
+
