@@ -378,53 +378,55 @@ client.on(Events.InteractionCreate, async (i) => {
     }
 
     /* --------- 💬 슬래시 커맨드 --------- */
-    if (i.isChatInputCommand()) {
-      const command = client.commands.get(i.commandName);
-      if (!command) return;
+if (i.isChatInputCommand()) {
+  const command = client.commands.get(i.commandName);
+  if (!command) return;
 
-      // ✅ 공통 deferReply: 공개로(에페메럴 금지) → 모집글은 전체공개로 올라감
-      if (!i.deferred && !i.replied) {
-        try { await i.deferReply(); } catch {}
+  // ✅ 공통 deferReply: "autoDefer !== false"일 때만 실행
+  if (command.autoDefer !== false && !i.deferred && !i.replied) {
+    try { await i.deferReply(); } catch {}
+  }
+
+  // ✅ reply 우회 래퍼: payload.ephemeral 지원
+  const _origReply = i.reply?.bind(i);
+  i.reply = (payload = {}) => {
+    if (payload && payload.ephemeral) {
+      payload = { ...payload, flags: MessageFlags.Ephemeral };
+      delete payload.ephemeral;
+    }
+    return i.followUp(payload);
+  };
+  i.safeReply = (payload) => safeReply(i, payload);
+
+  i._ari = {
+    notice: { upsert: upsertNotice, edit: editNotice, del: deleteNotice, store: noticeStore },
+    stickyStore,
+    refreshSticky,
+    recruitStates,
+    rowFor,
+    buildRecruitEmbed,
+    canClose,
+    sweepOnce
+  };
+
+  try {
+    await command.execute(i);
+    if (i.deferred && !i.replied) {
+      await i.editReply("✅ 처리 완료");
+    }
+  } catch (err) {
+    console.error("[command error]", err);
+    try {
+      if (i.deferred && !i.replied) {
+        await i.editReply("⚠️ 처리 중 오류가 발생했어요.");
+      } else if (!i.replied) {
+        await i.followUp({ content: "⚠️ 처리 중 오류가 발생했어요.", flags: MessageFlags.Ephemeral });
       }
+    } catch {}
+  }
+  return;
+}
 
-      // ✅ reply 우회 래퍼: payload.ephemeral 지원
-      const _origReply = i.reply?.bind(i);
-      i.reply = (payload = {}) => {
-        if (payload && payload.ephemeral) {
-          payload = { ...payload, flags: MessageFlags.Ephemeral };
-          delete payload.ephemeral;
-        }
-        return i.followUp(payload);
-      };
-      i.safeReply = (payload) => safeReply(i, payload);
-
-      i._ari = {
-        notice: { upsert: upsertNotice, edit: editNotice, del: deleteNotice, store: noticeStore },
-        stickyStore,
-        refreshSticky,
-        recruitStates,
-        rowFor,
-        buildRecruitEmbed,
-        canClose,
-        sweepOnce
-      };
-
-      try {
-        await command.execute(i);
-        if (i.deferred && !i.replied) {
-          await i.editReply("✅ 처리 완료");
-        }
-      } catch (err) {
-        console.error("[command error]", err);
-        try {
-          if (i.deferred && !i.replied) {
-            await i.editReply("⚠️ 처리 중 오류가 발생했어요.");
-          } else if (!i.replied) {
-            await i.followUp({ content: "⚠️ 처리 중 오류가 발생했어요.", flags: MessageFlags.Ephemeral });
-          }
-        } catch {}
-      }
-      return;
     }
   } catch (err) {
     console.error("[interaction error]", err);
