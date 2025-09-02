@@ -22,14 +22,23 @@ const { REST, Routes } = require('discord.js');
     await new Promise((res, rej) => dns.lookup('discord.com', (e, addr) => e ? rej(e) : (console.log('[DIAG] DNS discord.com ->', addr), res())));
     await new Promise((res, rej) => dns.lookup('gateway.discord.gg', (e, addr) => e ? rej(e) : (console.log('[DIAG] DNS gateway.discord.gg ->', addr), res())));
 
-    // 2) HTTPS 연결 확인
-    await new Promise((res, rej) => {
-      const req = https.get('https://discord.com/api/v10/gateway', r => {
-        console.log('[DIAG] HTTPS GET /gateway status =', r.statusCode);
-        (r.statusCode >= 200 && r.statusCode < 400) ? res() : rej(new Error('bad status ' + r.statusCode));
-      });
-      req.on('error', rej);
-    });
+   // 2) HTTPS 연결 확인 (429는 경고만 찍고 계속 진행)
+await new Promise((resolve, reject) => {
+  const req = https.get('https://discord.com/api/v10/gateway', res => {
+    const ok = res.statusCode >= 200 && res.statusCode < 400;
+    if (ok) {
+      console.log('[DIAG] HTTPS GET /gateway status =', res.statusCode);
+      resolve();
+    } else if (res.statusCode === 429) {
+      console.warn('[DIAG] /gateway rate-limited (429). Will continue anyway.');
+      resolve(); // ❗️이제 종료하지 않고 진행
+    } else {
+      reject(new Error('bad status ' + res.statusCode));
+    }
+  });
+  req.on('error', reject);
+});
+
 
     // 3) REST 토큰 검증
     const rest = new REST({ version: '10' }).setToken(token);
