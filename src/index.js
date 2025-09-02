@@ -388,28 +388,17 @@ client.on(Events.InteractionCreate, async (i) => {
       }
 
       // ✅ reply 우회(에페메럴 지원 + 상황별 처리)
-const _origReply = i.reply?.bind(i);
-i.reply = async (payload = {}) => {
-  // ephemeral -> flags 변환
-  if (payload && payload.ephemeral) {
-    payload = { ...payload, flags: MessageFlags.Ephemeral };
-    delete payload.ephemeral;
-  }
-
-  if (i.deferred && !i.replied) {
-    // 이미 deferReply 한 상태면 editReply가 정석
-    return i.editReply(payload);
-  }
-  if (!i.deferred && !i.replied) {
-    // 처음 응답
-    return _origReply ? _origReply(payload) : i.reply(payload);
-  }
-  // 그 외엔 followUp
-  return i.followUp(payload);
-};
-
-i.safeReply = (payload) => safeReply(i, payload);
-
+      const _origReply = i.reply?.bind(i);
+      i.reply = async (payload = {}) => {
+        if (payload && payload.ephemeral) {
+          payload = { ...payload, flags: MessageFlags.Ephemeral };
+          delete payload.ephemeral;
+        }
+        if (i.deferred && !i.replied) return i.editReply(payload);
+        if (!i.deferred && !i.replied) return _origReply ? _origReply(payload) : i.reply(payload);
+        return i.followUp(payload);
+      };
+      i.safeReply = (payload) => safeReply(i, payload);
 
       i._ari = {
         notice: { upsert: upsertNotice, edit: editNotice, del: deleteNotice, store: noticeStore },
@@ -424,7 +413,7 @@ i.safeReply = (payload) => safeReply(i, payload);
 
       try {
         await command.execute(i);
-         } catch (err) {
+      } catch (err) {
         console.error("[command error]", err);
         try {
           if (i.deferred && !i.replied) {
@@ -469,12 +458,11 @@ const { REST, Routes } = require('discord.js');
 
 async function verifyToken() {
   const raw = process.env.BOT_TOKEN || "";
-  const token = raw.trim(); // 복붙 시 공백/개행 제거
+  const token = raw.trim();
   if (!token) {
     console.error("[TOKEN] BOT_TOKEN is empty");
     process.exit(1);
   }
-
   const rest = new REST({ version: '10' }).setToken(token);
   try {
     const me = await rest.get(Routes.user('@me'));
@@ -486,7 +474,6 @@ async function verifyToken() {
   }
 }
 verifyToken();
-
 
 client.on('shardReady', (id, unavailable) => {
   console.log(`[SHARD ${id}] ready. unavailable=${!!unavailable}`);
@@ -500,11 +487,59 @@ client.on('shardError', (err, id) => {
 client.on('error', (err) => console.error('[CLIENT ERROR]', err?.message || err));
 client.on('warn', (msg) => console.warn('[CLIENT WARN]', msg));
 
+// === ⬇⬇⬇ 여기부터 "부팅 시 자동 등록" 블록 추가됨 (READY 아래, login 위) ===
+async function autoRegisterOnBoot() {
+  if (process.env.AUTO_REGISTER !== '1') {
+    console.log('[AUTOREG] skipped (set AUTO_REGISTER=1 to enable)');
+    return;
+  }
+  try {
+    const TOKEN     = (process.env.BOT_TOKEN || process.env.DISCORD_TOKEN || '').trim();
+    const CLIENT_ID = (process.env.CLIENT_ID || '').trim();
+    const GUILD_ID  = (process.env.GUILD_ID  || '').trim();
+    if (!TOKEN || !CLIENT_ID || !GUILD_ID) {
+      console.warn('[AUTOREG] env missing (BOT_TOKEN/CLIENT_ID/GUILD_ID). skip');
+      return;
+    }
 
-// 여기다가 토큰 검사 코드 + 게이트웨이 로그 코드 붙이기
+    // commands 폴더에서 스키마 수집
+    const commandsPath = path.join(__dirname, '..', 'commands');
+    const body = [];
+    for (const file of fs.readdirSync(commandsPath).filter(f => f.endsWith('.js'))) {
+      const cmd = require(path.join(commandsPath, file));
+      if (cmd?.data) body.push(cmd.data.toJSON());
+    }
+    console.log(`[AUTOREG] found ${body.length} commands`);
+
+    const rest = new REST({ version: '10' }).setToken(TOKEN);
+
+    // 토큰-앱ID 일치 확인
+    const me = await rest.get(Routes.user('@me'));
+    console.log(`[AUTOREG] token ok: ${me.username} (${me.id})`);
+    if (me.id !== CLIENT_ID) {
+      console.error(`[AUTOREG] CLIENT_ID(${CLIENT_ID}) != BOT_ID(${me.id}) → 환경변수 확인 필요`);
+      return;
+    }
+
+    // 글로벌/길드 모두 wipe
+    console.log('[AUTOREG] wipe GLOBAL…');
+    await rest.put(Routes.applicationCommands(CLIENT_ID), { body: [] });
+    console.log(`[AUTOREG] wipe GUILD(${GUILD_ID})…`);
+    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: [] });
+
+    // 길드에 재배포(즉시 반영)
+    console.log(`[AUTOREG] publish to GUILD ${GUILD_ID}…`);
+    const res = await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body });
+    console.log(`[AUTOREG] done: published ${res.length} commands`);
+  } catch (e) {
+    console.error('[AUTOREG] error', e.status || '', e.code || '', e.message || e);
+  }
+}
+// READY 이후 자동 실행 (꼭 login 전에 핸들러를 등록해야 READY 이벤트를 잡음)
+client.once(Events.ClientReady, () => { autoRegisterOnBoot(); });
+// === ⬆⬆⬆ 자동 등록 끝 ===
 
 client.login(process.env.BOT_TOKEN).catch((err) => {
   console.error('[LOGIN FAIL]', err?.code || err?.message || err);
   process.exit(1);
 });
-
