@@ -464,21 +464,29 @@ setTimeout(() => {
   }
 }, 60000);
 
-// === 게이트웨이/샤드/REST 진단 로그 ===
-client.on('shardReady', (id, unavailable) => {
-  console.log(`[SHARD ${id}] ready. unavailable=${!!unavailable}`);
-});
-client.on('shardDisconnect', (event, id) => {
-  console.warn(`[SHARD ${id}] disconnect code=${event.code} wasClean=${event.wasClean}`);
-});
-client.on('shardError', (err, id) => {
-  console.error(`[SHARD ${id}] error:`, err?.message || err);
-});
-client.on('error', (err) => console.error('[CLIENT ERROR]', err?.message || err));
-client.on('warn', (msg) => console.warn('[CLIENT WARN]', msg));
-client.rest.on('rateLimited', (info) => {
-  console.warn('[REST RL]', { route: info.route, timeout: info.timeout, limit: info.limit });
-});
+// === BOT TOKEN 즉석 검증 (게이트웨이 붙기 전에 REST로 확인) ===
+const { REST, Routes } = require('discord.js');
+
+async function verifyToken() {
+  const raw = process.env.BOT_TOKEN || "";
+  const token = raw.trim(); // 앞뒤 공백 제거 (복붙 때 공백 들어가면 망함)
+  if (!token) {
+    console.error("[TOKEN] BOT_TOKEN is empty");
+    process.exit(1);
+  }
+
+  const rest = new REST({ version: '10' }).setToken(token);
+  try {
+    const me = await rest.get(Routes.user('@me'));
+    console.log(`[TOKEN OK] Bot = ${me.username}#${me.discriminator} (${me.id})`);
+  } catch (e) {
+    console.error("[TOKEN INVALID]", e?.status, e?.code, e?.message || e);
+    console.error("👉 디스코드 포털에서 새 토큰 복사해서 Render 환경변수 BOT_TOKEN에 붙여넣고 재배포하세요. 따옴표/공백 금지!");
+    process.exit(1);
+  }
+}
+verifyToken();
+
 
 
 client.login(process.env.BOT_TOKEN).catch((err) => {
