@@ -12,9 +12,14 @@ process.on('uncaughtException',  (e) => console.error('[UNCAUGHT EXCEPTION]', e)
 /* =========================
  * 부팅 환경 로그
  * ========================= */
-const _tk = (process.env.BOT_TOKEN || '');
+const _tkRaw = (process.env.BOT_TOKEN || '');
+const _tk = _tkRaw.trim();
+const _cid = (process.env.CLIENT_ID || '').trim();
+const _gid = (process.env.GUILD_ID  || '').trim();
+
 console.log('[BOOT] BOT_TOKEN length =', _tk.length, _tk ? '(ok)' : '(missing)');
-console.log('[BOOT] CLIENT_ID =', process.env.CLIENT_ID || '(missing)');
+console.log('[BOOT] CLIENT_ID =', _cid || '(missing)');
+console.log('[BOOT] GUILD_ID  =', _gid || '(missing)');
 
 const {
   Client, GatewayIntentBits, Events,
@@ -290,12 +295,14 @@ client.commands = new Collection();
 try {
   const commandsPath = path.join(__dirname, "..", "commands");
   if (fs.existsSync(commandsPath)) {
-    for (const file of fs.readdirSync(commandsPath).filter(f => f.endsWith(".js"))) {
+    const files = fs.readdirSync(commandsPath).filter(f => f.endsWith(".js"));
+    for (const file of files) {
       const cmd = require(path.join(commandsPath, file));
       if (cmd?.data?.name && typeof cmd?.execute === "function") {
         client.commands.set(cmd.data.name, cmd);
       }
     }
+    console.log(`[CMDS] loaded ${client.commands.size} commands from /commands`);
   }
 } catch (e) {
   console.error("[commands load error]", e?.message || e);
@@ -443,26 +450,33 @@ client.on(Events.InteractionCreate, async (i) => {
 });
 
 /* =========================
- * 토큰 즉석 검증(REST) – 게이트웨이 전에 1회
+ * Preflight(자가진단): 토큰 검증 + CLIENT_ID 일치 + 초대 URL 로그
  * ========================= */
-async function verifyToken() {
-  const raw = process.env.BOT_TOKEN || "";
-  const token = raw.trim();
+async function preflight() {
+  const token = _tk;
   if (!token) {
-    console.error("[TOKEN] BOT_TOKEN is empty");
+    console.error('[FATAL] BOT_TOKEN is empty');
     process.exit(1);
   }
   const rest = new REST({ version: '10' }).setToken(token);
   try {
     const me = await rest.get(Routes.user('@me'));
-    console.log(`[TOKEN OK] Bot = ${me.username}#${me.discriminator} (${me.id})`);
+    console.log(`[TOKEN OK] Bot = ${me.username} (${me.id})`);
+    if (_cid && _cid !== String(me.id)) {
+      console.error(`[FATAL] CLIENT_ID(${_cid}) != BOT_ID(${me.id})  ← 환경변수 CLIENT_ID가 다른 앱을 가리킴`);
+      console.error('       Developer Portal의 Application ID를 CLIENT_ID에 정확히 넣어주세요.');
+      process.exit(1);
+    }
+    const invite = `https://discord.com/api/oauth2/authorize?client_id=${me.id}&permissions=8&scope=bot%20applications.commands`;
+    console.log('[INVITE]', invite);
+    console.log('[INTENTS] Guilds, GuildMessages, MessageContent, GuildVoiceStates enabled in client.');
   } catch (e) {
-    console.error("[TOKEN INVALID]", e?.status, e?.code, e?.message || e);
-    console.error("👉 개발자 포털에서 새 토큰 발급 → Render 환경변수 BOT_TOKEN에 공백 없이 붙여넣고 재배포");
+    console.error('[FATAL] TOKEN INVALID or network error:', e?.status || '', e?.code || '', e?.message || e);
+    console.error('👉 Discord 개발자 포털에서 새 토큰 발급 → Render 환경변수 BOT_TOKEN에 공백 없이 저장 후 재배포');
     process.exit(1);
   }
 }
-verifyToken();
+preflight();
 
 /* =========================
  * 부팅 시 자동 등록(선택)
@@ -511,9 +525,14 @@ async function autoRegisterOnBoot() {
 }
 
 /* =========================
- * READY (단 하나의 핸들러)
+ * READY (워치독 포함)
  * ========================= */
+let _readyTimer = setTimeout(() => {
+  console.error('[WARN] READY not fired within 60s. Check BOT_TOKEN / Intents / Network / Invite scopes.');
+}, 60_000);
+
 client.once(Events.ClientReady, async (c) => {
+  clearTimeout(_readyTimer);
   console.log(`[READY] ${c.user.tag} online`);
 
   // presence
@@ -540,17 +559,24 @@ client.on('shardDisconnect', (event, id) => {
 client.on('shardError', (err, id) => {
   console.error(`[GW] shardError #${id}:`, err?.message || err);
 });
+client.on('invalidated', () => {
+  console.error('[GW] session invalidated — will exit to restart');
+  process.exit(1);
+});
+client.on('rateLimit', (info) => {
+  console.warn('[GW] rateLimit', info);
+});
 client.on('debug', (m) => {
   const s = String(m);
-  if (s.includes('Heartbeat') || s.includes('session') || s.includes('READY')) {
-    console.log('[GW-DEBUG]', m);
+  if (s.includes('Heartbeat') || s.includes('session') || s.includes('READY') || s.includes('IDENTIFY')) {
+    console.log('[GW-DEBUG]', s);
   }
 });
 
 /* =========================
  * 로그인 (단 한 번)
  * ========================= */
-const LOGIN_TOKEN = (process.env.BOT_TOKEN || '').trim();
+const LOGIN_TOKEN = _tk;
 if (!LOGIN_TOKEN) {
   console.error('[FATAL] BOT_TOKEN 비어있음');
   process.exit(1);
