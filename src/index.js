@@ -1,6 +1,8 @@
 // src/index.js
 require('dotenv').config();
 require('../server');
+const TOKEN = (process.env.BOT_TOKEN || '').trim();
+console.log('[CHECK] token length=', TOKEN.length, 'begins', TOKEN.slice(0,3), 'ends', TOKEN.slice(-3));
 
 console.log('[BOOT] index.js started');
 
