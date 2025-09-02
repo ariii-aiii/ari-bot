@@ -3,11 +3,15 @@ require('dotenv').config();
 require('../server');
 require('./boot-check');
 
-// === 전역 에러 핸들러(꼭 넣자) ===
+/* =========================
+ * 기본 에러 핸들러
+ * ========================= */
 process.on('unhandledRejection', (e) => console.error('[UNHANDLED REJECTION]', e));
 process.on('uncaughtException',  (e) => console.error('[UNCAUGHT EXCEPTION]', e));
 
-// === 부팅 환경 체크 로그 ===
+/* =========================
+ * 부팅 환경 로그
+ * ========================= */
 const _tk = (process.env.BOT_TOKEN || '');
 console.log('[BOOT] BOT_TOKEN length =', _tk.length, _tk ? '(ok)' : '(missing)');
 console.log('[BOOT] CLIENT_ID =', process.env.CLIENT_ID || '(missing)');
@@ -15,26 +19,33 @@ console.log('[BOOT] CLIENT_ID =', process.env.CLIENT_ID || '(missing)');
 const {
   Client, GatewayIntentBits, Events,
   ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, Collection,
-  MessageFlags,
+  MessageFlags, REST, Routes,
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 
+/* =========================
+ * 클라이언트
+ * ========================= */
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildVoiceStates,
-  ]
+  ],
 });
 
-// ===== 상태 저장소 =====
+/* =========================
+ * 상태 저장소
+ * ========================= */
 const recruitStates = new Map();
 const stickyStore   = new Map();
 const noticeStore   = new Map();
 
-// ===== 공통 유틸 =====
+/* =========================
+ * 공통 유틸
+ * ========================= */
 async function safeReply(i, payload) {
   if (payload && payload.ephemeral) {
     payload.flags = MessageFlags.Ephemeral;
@@ -81,9 +92,9 @@ function buildRecruitEmbed(st) {
   return new EmbedBuilder().setTitle(title).setDescription(desc).setColor(isNaN(colorInt) ? 0xCDC1FF : colorInt);
 }
 
-/* ------------------------------------------------------------------ */
-/*                           공지(단일 유지)                           */
-/* ------------------------------------------------------------------ */
+/* =========================
+ * 공지(단일 유지)
+ * ========================= */
 async function sweepOnce(channel, keepId, tag) {
   try {
     const fetched = await channel.messages.fetch({ limit: 30 });
@@ -144,9 +155,9 @@ async function deleteNotice(channel) {
   noticeStore.delete(channel.id);
 }
 
-/* ------------------------------------------------------------------ */
-/*                             스티키(팔로우)                           */
-/* ------------------------------------------------------------------ */
+/* =========================
+ * 스티키(팔로우)
+ * ========================= */
 function sanitizeEmbed(baseEmbed) {
   const e = EmbedBuilder.from(baseEmbed);
   e.setFooter(null);
@@ -255,7 +266,9 @@ async function refreshSticky(channel, entry) {
   }
 }
 
-// ===== 메시지 이벤트(팔로우 스티키) =====
+/* =========================
+ * 메시지 이벤트(팔로우 스티키)
+ * ========================= */
 client.on(Events.MessageCreate, async (msg) => {
   if (msg.author.bot || !msg.inGuild()) return;
   await ensureStickyIfMissing(msg.channel);
@@ -270,9 +283,9 @@ client.on(Events.MessageCreate, async (msg) => {
   }
 });
 
-/* ------------------------------------------------------------------ */
-/*                           커맨드 로딩/주입                           */
-/* ------------------------------------------------------------------ */
+/* =========================
+ * 커맨드 로딩
+ * ========================= */
 client.commands = new Collection();
 try {
   const commandsPath = path.join(__dirname, "..", "commands");
@@ -288,12 +301,12 @@ try {
   console.error("[commands load error]", e?.message || e);
 }
 
-/* ------------------------------------------------------------------ */
-/*                     상호작용(버튼 + 슬래시) 라우팅                   */
-/* ------------------------------------------------------------------ */
+/* =========================
+ * 인터랙션 라우팅 (버튼/슬래시)
+ * ========================= */
 client.on(Events.InteractionCreate, async (i) => {
   try {
-    /* --------- 🔘 버튼 먼저 처리 --------- */
+    // 버튼
     if (i.isButton()) {
       const m = i.customId.match(/^(join|leave|list|close|open):(.+)$/);
       if (!m) return;
@@ -302,7 +315,6 @@ client.on(Events.InteractionCreate, async (i) => {
       let msgId = m[2];
       if (msgId === 'temp') msgId = i.message.id;
 
-      console.log('[BTN]', i.customId, '→ using msgId:', msgId);
       await i.deferUpdate();
 
       if (!recruitStates.has(msgId)) {
@@ -357,18 +369,13 @@ client.on(Events.InteractionCreate, async (i) => {
         });
       }
 
-      if (action === "close" || action === "open") {
+      if (action === "close" || action === "open")) {
         if (!canClose(i)) {
           await i.followUp({ content: "⛔ 마감/재오픈 권한이 없어요.", flags: MessageFlags.Ephemeral });
         } else {
           st.isClosed = (action === "close");
-          if (st.isClosed) {
-            st.closedBy = i.user.id;
-            st.closedAt = Date.now();
-          } else {
-            delete st.closedBy;
-            delete st.closedAt;
-          }
+          if (st.isClosed) { st.closedBy = i.user.id; st.closedAt = Date.now(); }
+          else { delete st.closedBy; delete st.closedAt; }
         }
       }
 
@@ -377,17 +384,15 @@ client.on(Events.InteractionCreate, async (i) => {
       return;
     }
 
-    /* --------- 💬 슬래시 커맨드 --------- */
+    // 슬래시 커맨드
     if (i.isChatInputCommand()) {
       const command = client.commands.get(i.commandName);
       if (!command) return;
 
-      // ✅ 자동 defer: 명령어가 autoDefer === false면 스킵
       if (command.autoDefer !== false && !i.deferred && !i.replied) {
         try { await i.deferReply(); } catch {}
       }
 
-      // ✅ reply 우회(에페메럴 지원 + 상황별 처리)
       const _origReply = i.reply?.bind(i);
       i.reply = async (payload = {}) => {
         if (payload && payload.ephemeral) {
@@ -437,25 +442,9 @@ client.on(Events.InteractionCreate, async (i) => {
   }
 });
 
-/* ------------------------------------------------------------------ */
-/*                              READY / 로그인                         */
-/* ------------------------------------------------------------------ */
-client.once(Events.ClientReady, (c) => {
-  console.log(`[READY] AriBot logged in as ${c.user.tag}`);
-});
-
-// 로그인 완료 감시
-let readySeen = false;
-client.once(Events.ClientReady, () => { readySeen = true; });
-setTimeout(() => {
-  if (!readySeen) {
-    console.error('[WARN] Discord READY not fired within 60s. Check BOT_TOKEN/Intents/Network.');
-  }
-}, 60000);
-
-// === BOT TOKEN 즉석 검증 (게이트웨이 붙기 전에 REST로 확인) ===
-const { REST, Routes } = require('discord.js');
-
+/* =========================
+ * 토큰 즉석 검증(REST) – 게이트웨이 전에 1회
+ * ========================= */
 async function verifyToken() {
   const raw = process.env.BOT_TOKEN || "";
   const token = raw.trim();
@@ -469,25 +458,15 @@ async function verifyToken() {
     console.log(`[TOKEN OK] Bot = ${me.username}#${me.discriminator} (${me.id})`);
   } catch (e) {
     console.error("[TOKEN INVALID]", e?.status, e?.code, e?.message || e);
-    console.error("👉 Discord 개발자 포털에서 새 토큰 발급 → Render 환경변수 BOT_TOKEN에 공백/따옴표 없이 붙여넣고 재배포");
+    console.error("👉 개발자 포털에서 새 토큰 발급 → Render 환경변수 BOT_TOKEN에 공백 없이 붙여넣고 재배포");
     process.exit(1);
   }
 }
 verifyToken();
 
-client.on('shardReady', (id, unavailable) => {
-  console.log(`[SHARD ${id}] ready. unavailable=${!!unavailable}`);
-});
-client.on('shardDisconnect', (event, id) => {
-  console.warn(`[SHARD ${id}] disconnect code=${event.code} wasClean=${event.wasClean}`);
-});
-client.on('shardError', (err, id) => {
-  console.error(`[SHARD ${id}] error:`, err?.message || err);
-});
-client.on('error', (err) => console.error('[CLIENT ERROR]', err?.message || err));
-client.on('warn', (msg) => console.warn('[CLIENT WARN]', msg));
-
-// === ⬇⬇⬇ 여기부터 "부팅 시 자동 등록" 블록 추가됨 (READY 아래, login 위) ===
+/* =========================
+ * 부팅 시 자동 등록(선택)
+ * ========================= */
 async function autoRegisterOnBoot() {
   if (process.env.AUTO_REGISTER !== '1') {
     console.log('[AUTOREG] skipped (set AUTO_REGISTER=1 to enable)');
@@ -502,7 +481,6 @@ async function autoRegisterOnBoot() {
       return;
     }
 
-    // commands 폴더에서 스키마 수집
     const commandsPath = path.join(__dirname, '..', 'commands');
     const body = [];
     for (const file of fs.readdirSync(commandsPath).filter(f => f.endsWith('.js'))) {
@@ -512,22 +490,18 @@ async function autoRegisterOnBoot() {
     console.log(`[AUTOREG] found ${body.length} commands`);
 
     const rest = new REST({ version: '10' }).setToken(TOKEN);
-
-    // 토큰-앱ID 일치 확인
     const me = await rest.get(Routes.user('@me'));
     console.log(`[AUTOREG] token ok: ${me.username} (${me.id})`);
     if (me.id !== CLIENT_ID) {
-      console.error(`[AUTOREG] CLIENT_ID(${CLIENT_ID}) != BOT_ID(${me.id}) → 환경변수 확인 필요`);
+      console.error(`[AUTOREG] CLIENT_ID(${CLIENT_ID}) != BOT_ID(${me.id}) → 환경변수 확인`);
       return;
     }
 
-    // 글로벌/길드 모두 wipe
     console.log('[AUTOREG] wipe GLOBAL…');
     await rest.put(Routes.applicationCommands(CLIENT_ID), { body: [] });
     console.log(`[AUTOREG] wipe GUILD(${GUILD_ID})…`);
     await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: [] });
 
-    // 길드에 재배포(즉시 반영)
     console.log(`[AUTOREG] publish to GUILD ${GUILD_ID}…`);
     const res = await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body });
     console.log(`[AUTOREG] done: published ${res.length} commands`);
@@ -535,18 +509,28 @@ async function autoRegisterOnBoot() {
     console.error('[AUTOREG] error', e.status || '', e.code || '', e.message || e);
   }
 }
-// READY 이후 자동 실행 (꼭 login 전에 핸들러를 등록해야 READY 이벤트를 잡음)
-client.once(Events.ClientReady, () => { autoRegisterOnBoot(); });
-// === ⬆⬆⬆ 자동 등록 끝 ===
-client.once(Events.ClientReady, (c) => {
+
+/* =========================
+ * READY (단 하나의 핸들러)
+ * ========================= */
+client.once(Events.ClientReady, async (c) => {
   console.log(`[READY] ${c.user.tag} online`);
-  c.user.setPresence({
-    status: 'online',
-    activities: [{ name: '/공지 /아리모집 /팀', type: 0 }]
-  });
+
+  // presence
+  try {
+    c.user.setPresence({
+      status: 'online',
+      activities: [{ name: '/공지 /아리모집 /팀', type: 0 }]
+    });
+  } catch {}
+
+  // 자동 등록(옵션)
+  await autoRegisterOnBoot();
 });
 
-// 게이트웨이 상태 디버그
+/* =========================
+ * 게이트웨이 디버그(필요한 것만)
+ * ========================= */
 client.on('shardReady', (id, unavailable) => {
   console.log(`[GW] shardReady #${id} (unavailable=${!!unavailable})`);
 });
@@ -557,24 +541,21 @@ client.on('shardError', (err, id) => {
   console.error(`[GW] shardError #${id}:`, err?.message || err);
 });
 client.on('debug', (m) => {
-  if (
-    String(m).includes('Heartbeat') ||
-    String(m).includes('session') ||
-    String(m).includes('READY')
-  ) {
+  const s = String(m);
+  if (s.includes('Heartbeat') || s.includes('session') || s.includes('READY')) {
     console.log('[GW-DEBUG]', m);
   }
 });
 
-
-// (기존)
-// client.login(process.env.BOT_TOKEN).catch((err) => {
-
-// (교체)
+/* =========================
+ * 로그인 (단 한 번)
+ * ========================= */
 const LOGIN_TOKEN = (process.env.BOT_TOKEN || '').trim();
+if (!LOGIN_TOKEN) {
+  console.error('[FATAL] BOT_TOKEN 비어있음');
+  process.exit(1);
+}
 client.login(LOGIN_TOKEN).catch((err) => {
-
-   console.error('[LOGIN FAIL]', err?.code || err?.message || err);
-   process.exit(1);
- });
-
+  console.error('[LOGIN FAIL]', err?.code || err?.message || err);
+  process.exit(1);
+});
