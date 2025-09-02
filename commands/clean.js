@@ -23,26 +23,27 @@ module.exports = {
     )
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
+  // ✅ index.js의 자동 defer를 끈다
+  autoDefer: false,
+
   requiredClientPermissions: [
     PermissionFlagsBits.ManageMessages,
-    PermissionFlagsBits.ReadMessageHistory
+    PermissionFlagsBits.ReadMessageHistory,
   ],
 
   async execute(interaction) {
-    try {
-      // ✅ 1) 들어오자마자 타임아웃 방지
-      await interaction.deferReply({ ephemeral: true });
+    // 1) 타임아웃 방지 & 에페메럴 고정
+    await interaction.deferReply({ ephemeral: true });
 
+    try {
       const channel = interaction.channel;
       const amount = interaction.options.getInteger("개수", true);
       const includeBots = interaction.options.getBoolean("봇포함") ?? true;
 
-      // ✅ 2) 이후부턴 전부 editReply 사용
+      // 2) 권한 체크 (채널 오버라이드 포함)
       const me = interaction.guild.members.me;
-      if (!me?.permissionsIn(channel).has([
-        PermissionFlagsBits.ManageMessages,
-        PermissionFlagsBits.ReadMessageHistory
-      ])) {
+      const need = [PermissionFlagsBits.ManageMessages, PermissionFlagsBits.ReadMessageHistory];
+      if (!me?.permissionsIn(channel).has(need)) {
         return interaction.editReply("❌ 제가 이 채널에서 **메시지 관리/기록 보기** 권한이 없어요. 역할/채널 권한 확인해줘!");
       }
 
@@ -50,12 +51,12 @@ module.exports = {
         return interaction.editReply("1~100 사이로 입력해줘!");
       }
 
-      // 최근 100개 가져와서 조건 필터
+      // 3) 최근 100개 가져와 필터 (핀 제외, 봇 제외 옵션)
       const fetched = await channel.messages.fetch({ limit: 100 });
       const targets = fetched
         .filter(m => {
-          if (m.pinned) return false;                 // 핀 제외
-          if (!includeBots && m.author.bot) return false; // 봇 제외 옵션
+          if (m.pinned) return false;
+          if (!includeBots && m.author.bot) return false;
           return true;
         })
         .first(amount);
@@ -64,7 +65,7 @@ module.exports = {
         return interaction.editReply("지울 메시지가 없거나, 조건에 맞는 메시지가 없어요.");
       }
 
-      // 14일 초과분은 자동 스킵
+      // 4) 일괄 삭제: 14일 초과분은 자동 스킵
       const deleted = await channel.bulkDelete(targets, true).catch(() => null);
       if (!deleted) {
         return interaction.editReply("❌ 메시지를 지우는 중 오류가 발생했어요. (14일 지난 메시지는 삭제 불가)");
@@ -73,11 +74,7 @@ module.exports = {
       return interaction.editReply(`🧹 **${deleted.size}개** 메시지 삭제 완료!${includeBots ? "" : " (봇 메시지 제외)"}`);
     } catch (e) {
       console.error("[/청소] error:", e);
-      if (interaction.deferred || interaction.replied) {
-        return interaction.editReply("❌ 처리 중 오류가 발생했어요.");
-      }
-      // (이 줄은 거의 안 타지만 안전망)
-      return interaction.reply({ content: "❌ 처리 중 오류가 발생했어요.", ephemeral: true });
+      return interaction.editReply("❌ 처리 중 오류가 발생했어요.");
     }
   },
 };
