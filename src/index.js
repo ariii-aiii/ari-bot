@@ -369,7 +369,7 @@ client.on(Events.InteractionCreate, async (i) => {
         });
       }
 
-      if (action === "close" || action === "open")) {
+      if (action === "close" || action === "open") {
         if (!canClose(i)) {
           await i.followUp({ content: "⛔ 마감/재오픈 권한이 없어요.", flags: MessageFlags.Ephemeral });
         } else {
