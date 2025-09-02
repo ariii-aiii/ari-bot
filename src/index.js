@@ -424,10 +424,7 @@ i.safeReply = (payload) => safeReply(i, payload);
 
       try {
         await command.execute(i);
-        if (i.deferred && !i.replied) {
-          await i.editReply("✅ 처리 완료");
-        }
-      } catch (err) {
+         } catch (err) {
         console.error("[command error]", err);
         try {
           if (i.deferred && !i.replied) {
