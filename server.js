@@ -1,20 +1,24 @@
-// server.js — 헬스 서버 (중복 실행 방지)
+// server.js — 헬스 서버
 const http = require('http');
 
 if (!globalThis.__HEALTH_SERVER_STARTED__) {
   globalThis.__HEALTH_SERVER_STARTED__ = true;
 
-  const PORT = Number(process.env.PORT) || 3001;
+  const PORT = Number(process.env.PORT);
 
   const server = http.createServer((req, res) => {
+    if (req.url === '/health') {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      return res.end('OK');
+    }
     res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('ok');
+    res.end('AriBot alive');
   });
 
-  server.listen(PORT);
-  server.on('listening', () => {
+  server.listen(PORT, () => {
     console.log(`[health] listening on ${PORT}`);
   });
+
   server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
       console.log(`[health] port ${PORT} already in use, skipping health server.`);
@@ -23,10 +27,8 @@ if (!globalThis.__HEALTH_SERVER_STARTED__) {
     }
   });
 
-  // 종료 시 정리
   process.on('SIGTERM', () => server.close(() => process.exit(0)));
   process.on('SIGINT', () => server.close(() => process.exit(0)));
 }
 
-// require만 해도 위에서 실행되므로 export는 의미 없음
 module.exports = () => {};
