@@ -460,9 +460,9 @@ let readySeen = false;
 client.once(Events.ClientReady, () => { readySeen = true; });
 setTimeout(() => {
   if (!readySeen) {
-    console.error('[WARN] Discord READY not fired within 20s. Check BOT_TOKEN/Intents/Network.');
+    console.error('[WARN] Discord READY not fired within 60s. Check BOT_TOKEN/Intents/Network.');
   }
-}, 20000);
+}, 60000);
 
 // === 게이트웨이/샤드/REST 진단 로그 ===
 client.on('shardReady', (id, unavailable) => {
