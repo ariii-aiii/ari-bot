@@ -6,6 +6,7 @@ require('./boot-check');
 // ==== Quick net / token diagnostics ====
 const dns = require('dns');
 const https = require('https');
+// ⬇️ REST/Routes는 여기에서 '한 번만' 선언합니다.
 const { REST, Routes } = require('discord.js');
 
 (async () => {
@@ -37,11 +38,10 @@ const { REST, Routes } = require('discord.js');
 
   } catch (e) {
     console.error('[DIAG] FAILED:', e.message || e);
-    // 진단 실패면 바로 종료해서 왜 실패했는지 로그로 보자
+    // 진단 실패면 바로 종료해서 원인을 로그로 확인
     process.exit(1);
   }
 })();
-
 
 /* =========================
  * 기본 에러 핸들러
@@ -64,7 +64,7 @@ console.log('[BOOT] GUILD_ID  =', _gid || '(missing)');
 const {
   Client, GatewayIntentBits, Events,
   ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, Collection,
-  MessageFlags, REST, Routes,
+  MessageFlags, // ⬅️ 여기서는 REST, Routes 제거!
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
@@ -76,7 +76,7 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-   // GatewayIntentBits.MessageContent, // ← 잠시 제거 (주석/삭제)
+    // GatewayIntentBits.MessageContent, // 필요시 다시 활성화
     GatewayIntentBits.GuildVoiceStates,
   ],
 });
@@ -509,7 +509,7 @@ async function preflight() {
     }
     const invite = `https://discord.com/api/oauth2/authorize?client_id=${me.id}&permissions=8&scope=bot%20applications.commands`;
     console.log('[INVITE]', invite);
-    console.log('[INTENTS] Guilds, GuildMessages, MessageContent, GuildVoiceStates enabled in client.');
+    console.log('[INTENTS] Guilds, GuildMessages, (MessageContent?), GuildVoiceStates');
   } catch (e) {
     console.error('[FATAL] TOKEN INVALID or network error:', e?.status || '', e?.code || '', e?.message || e);
     console.error('👉 Discord 개발자 포털에서 새 토큰 발급 → Render 환경변수 BOT_TOKEN에 공백 없이 저장 후 재배포');
