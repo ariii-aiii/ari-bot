@@ -7,6 +7,7 @@ const {
 } = require("discord.js");
 
 module.exports = {
+  autoDefer: false,  // ← 이 줄 추가 (이 명령어는 자동 defer 끔)
   data: new SlashCommandBuilder()
     .setName("notice")
     .setNameLocalizations({ ko: "공지" })
