@@ -538,9 +538,33 @@ async function autoRegisterOnBoot() {
 // READY 이후 자동 실행 (꼭 login 전에 핸들러를 등록해야 READY 이벤트를 잡음)
 client.once(Events.ClientReady, () => { autoRegisterOnBoot(); });
 // === ⬆⬆⬆ 자동 등록 끝 ===
+client.once(Events.ClientReady, (c) => {
+  console.log(`[READY] ${c.user.tag} online`);
+  c.user.setPresence({
+    status: 'online',
+    activities: [{ name: '/공지 /아리모집 /팀', type: 0 }]
+  });
+});
 
-client.on('debug', (m) => console.log('[GW-DEBUG]', m));
-client.on('shardDisconnect', (event, id) => console.warn(`[SHARD ${id}] disconnect`, event?.code));
+// 게이트웨이 상태 디버그
+client.on('shardReady', (id, unavailable) => {
+  console.log(`[GW] shardReady #${id} (unavailable=${!!unavailable})`);
+});
+client.on('shardDisconnect', (event, id) => {
+  console.warn(`[GW] shardDisconnect #${id} code=${event.code} clean=${event.wasClean}`);
+});
+client.on('shardError', (err, id) => {
+  console.error(`[GW] shardError #${id}:`, err?.message || err);
+});
+client.on('debug', (m) => {
+  if (
+    String(m).includes('Heartbeat') ||
+    String(m).includes('session') ||
+    String(m).includes('READY')
+  ) {
+    console.log('[GW-DEBUG]', m);
+  }
+});
 
 
 // (기존)
