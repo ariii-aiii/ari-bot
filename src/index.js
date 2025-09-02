@@ -387,15 +387,29 @@ client.on(Events.InteractionCreate, async (i) => {
         try { await i.deferReply(); } catch {}
       }
 
-      // ✅ reply 우회(에페메럴 지원)
-      i.reply = (payload = {}) => {
-        if (payload && payload.ephemeral) {
-          payload = { ...payload, flags: MessageFlags.Ephemeral };
-          delete payload.ephemeral;
-        }
-        return i.followUp(payload);
-      };
-      i.safeReply = (payload) => safeReply(i, payload);
+      // ✅ reply 우회(에페메럴 지원 + 상황별 처리)
+const _origReply = i.reply?.bind(i);
+i.reply = async (payload = {}) => {
+  // ephemeral -> flags 변환
+  if (payload && payload.ephemeral) {
+    payload = { ...payload, flags: MessageFlags.Ephemeral };
+    delete payload.ephemeral;
+  }
+
+  if (i.deferred && !i.replied) {
+    // 이미 deferReply 한 상태면 editReply가 정석
+    return i.editReply(payload);
+  }
+  if (!i.deferred && !i.replied) {
+    // 처음 응답
+    return _origReply ? _origReply(payload) : i.reply(payload);
+  }
+  // 그 외엔 followUp
+  return i.followUp(payload);
+};
+
+i.safeReply = (payload) => safeReply(i, payload);
+
 
       i._ari = {
         notice: { upsert: upsertNotice, edit: editNotice, del: deleteNotice, store: noticeStore },
