@@ -539,9 +539,13 @@ async function autoRegisterOnBoot() {
 client.once(Events.ClientReady, () => { autoRegisterOnBoot(); });
 // === ⬆⬆⬆ 자동 등록 끝 ===
 
-- client.login(process.env.BOT_TOKEN).catch((err) => {
-+ const LOGIN_TOKEN = (process.env.BOT_TOKEN || '').trim();
-+ client.login(LOGIN_TOKEN).catch((err) => {
+// (기존)
+// client.login(process.env.BOT_TOKEN).catch((err) => {
+
+// (교체)
+const LOGIN_TOKEN = (process.env.BOT_TOKEN || '').trim();
+client.login(LOGIN_TOKEN).catch((err) => {
+
    console.error('[LOGIN FAIL]', err?.code || err?.message || err);
    process.exit(1);
  });
