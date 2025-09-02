@@ -36,7 +36,7 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
+   // GatewayIntentBits.MessageContent, // ← 잠시 제거 (주석/삭제)
     GatewayIntentBits.GuildVoiceStates,
   ],
 });
