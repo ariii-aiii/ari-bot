@@ -53,6 +53,20 @@ client.once(Events.ClientReady, (c) => {
   console.log(`[READY] Logged in as ${c.user.tag} (${c.user.id})`);
 });
 
+const { REST, Routes } = require('discord.js');
+const token = (process.env.BOT_TOKEN || '').trim();
+
+(async () => {
+  try {
+    const rest = new REST({ version: '10' }).setToken(token);
+    const me = await rest.get(Routes.user('@me'));
+    console.log('[REST] Bot account =', me.username, me.id);
+  } catch (e) {
+    console.error('[REST] FAIL', e);
+  }
+})();
+
+
 // 로그인
 const token = (process.env.BOT_TOKEN || '').trim();
 if (!token) {
