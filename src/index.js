@@ -561,7 +561,7 @@ client.on('shardError', (err, id) => {
 });
 client.on('invalidated', () => {
   console.error('[GW] session invalidated — will exit to restart');
-  process.exit(1);
+  process.exit(1); // Render가 재기동
 });
 client.on('rateLimit', (info) => {
   console.warn('[GW] rateLimit', info);
