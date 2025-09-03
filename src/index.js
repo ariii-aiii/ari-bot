@@ -2,14 +2,14 @@
 require('dotenv').config();
 require('../server');
 
-// =======================
+// ─────────────────────────────
 // 부팅 로그
-// =======================
+// ─────────────────────────────
 console.log('[BOOT] index.js started');
 
-// =======================
-// 모듈 불러오기
-// =======================
+// ─────────────────────────────
+// 모듈
+// ─────────────────────────────
 const {
   Client, GatewayIntentBits, Events,
   ActionRowBuilder, ButtonBuilder, ButtonStyle,
@@ -19,20 +19,20 @@ const {
 const fs = require('fs');
 const path = require('path');
 
-// =======================
+// ─────────────────────────────
 // 환경변수
-// =======================
+// ─────────────────────────────
 const TOKEN     = (process.env.BOT_TOKEN || '').trim();
 const CLIENT_ID = (process.env.CLIENT_ID || '').trim();
 const GUILD_ID  = (process.env.GUILD_ID  || '').trim();
 
 console.log('[CHECK] token length =', TOKEN.length);
-console.log('[CHECK] client id    =', CLIENT_ID);
-console.log('[CHECK] guild id     =', GUILD_ID);
+console.log('[CHECK] client id    =', CLIENT_ID || '(missing)');
+console.log('[CHECK] guild id     =', GUILD_ID  || '(missing)');
 
-// =======================
+// ─────────────────────────────
 // 클라이언트
-// =======================
+// ─────────────────────────────
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -42,16 +42,16 @@ const client = new Client({
   ],
 });
 
-// =======================
+// ─────────────────────────────
 // 상태 저장소
-// =======================
+// ─────────────────────────────
 const recruitStates = new Map();
 const stickyStore   = new Map();
 const noticeStore   = new Map();
 
-// =======================
-// 공통 함수
-// =======================
+// ─────────────────────────────
+// 공통 유틸
+// ─────────────────────────────
 async function safeReply(i, payload) {
   if (payload?.ephemeral) {
     payload.flags = MessageFlags.Ephemeral;
@@ -96,9 +96,9 @@ function buildRecruitEmbed(st) {
   return new EmbedBuilder().setTitle(title).setDescription(desc).setColor(0xCDC1FF);
 }
 
-// =======================
-// 공지 / 스티키 관련 함수
-// =======================
+// ─────────────────────────────
+// 공지(1개 유지) / 스티키 헬퍼
+// ─────────────────────────────
 async function upsertNotice(channel, payload) {
   const prev = noticeStore.get(channel.id);
   if (prev?.messageId) {
@@ -130,10 +130,6 @@ async function deleteNotice(channel) {
   }
   noticeStore.delete(channel.id);
 }
-
-// =======================
-// 스티키 유지
-// =======================
 async function ensureStickyIfMissing(channel) {
   if (stickyStore.has(channel.id)) return;
   const entry = {
@@ -146,17 +142,17 @@ async function ensureStickyIfMissing(channel) {
   stickyStore.set(channel.id, entry);
 }
 
-// =======================
-// 메시지 이벤트 (스티키 적용)
-// =======================
+// ─────────────────────────────
+// 메시지 이벤트(스티키 훅만)
+// ─────────────────────────────
 client.on(Events.MessageCreate, async (msg) => {
   if (msg.author.bot || !msg.inGuild()) return;
   await ensureStickyIfMissing(msg.channel);
 });
 
-// =======================
-// 명령어 로딩
-// =======================
+// ─────────────────────────────
+// 커맨드 로딩
+// ─────────────────────────────
 client.commands = new Collection();
 try {
   const commandsPath = path.join(__dirname, "..", "commands");
@@ -174,13 +170,13 @@ try {
   console.error("[commands load error]", e?.message || e);
 }
 
-// =======================
-// 인터랙션 처리
-// =======================
+// ─────────────────────────────
+// 인터랙션 라우팅
+// ─────────────────────────────
 client.on(Events.InteractionCreate, async (i) => {
   try {
+    // 버튼(모집)
     if (i.isButton()) {
-      // 버튼 처리
       const m = i.customId.match(/^(join|leave|list|close|open):(.+)$/);
       if (!m) return;
 
@@ -193,7 +189,6 @@ client.on(Events.InteractionCreate, async (i) => {
       if (!recruitStates.has(msgId)) {
         recruitStates.set(msgId, { cap: 16, title: "모집", members: new Set(), waitlist: new Set(), isClosed: false, hostId: i.user.id });
       }
-
       const st = recruitStates.get(msgId);
 
       if (action === "join") {
@@ -214,11 +209,31 @@ client.on(Events.InteractionCreate, async (i) => {
         st.waitlist.delete(i.user.id);
       }
 
+      if (action === "list") {
+        const list = [...st.members].map((u, n) => `${n + 1}. <@${u}>`).join("\n") || "아무도 없음";
+        const wait = [...st.waitlist].map((u, n) => `${n + 1}. <@${u}>`).join("\n");
+        await i.followUp({
+          content: `현재 인원 (${st.members.size}/${st.cap})\n${list}` + (wait ? `\n\n예비자\n${wait}` : ""),
+          flags: MessageFlags.Ephemeral
+        });
+      }
+
+      if (action === "close" || action === "open") {
+        if (!canClose(i)) {
+          await i.followUp({ content: "⛔ 마감/재오픈 권한이 없어요.", flags: MessageFlags.Ephemeral });
+        } else {
+          st.isClosed = (action === "close");
+          if (st.isClosed) { st.closedBy = i.user.id; st.closedAt = Date.now(); }
+          else { delete st.closedBy; delete st.closedAt; }
+        }
+      }
+
       const embed = buildRecruitEmbed(st);
       await i.message.edit({ embeds: [embed], components: [rowFor(msgId, st.isClosed)] });
       return;
     }
 
+    // 슬래시 커맨드
     if (i.isChatInputCommand()) {
       const command = client.commands.get(i.commandName);
       if (!command) return;
@@ -229,9 +244,9 @@ client.on(Events.InteractionCreate, async (i) => {
   }
 });
 
-// =======================
-// READY 이벤트
-// =======================
+// ─────────────────────────────
+// READY
+// ─────────────────────────────
 let watchdog = setTimeout(() => {
   console.error('[WARN] READY not fired within 60s. Check BOT_TOKEN / Intents / Invite / Code Grant.');
 }, 60_000);
@@ -240,15 +255,17 @@ client.once(Events.ClientReady, (c) => {
   clearTimeout(watchdog);
   console.log(`[READY] ${c.user.tag} (${c.user.id}) online`);
 
-  c.user.setPresence({
-    status: 'online',
-    activities: [{ name: '/공지 /아리모집 /팀', type: 0 }]
-  });
+  try {
+    c.user.setPresence({
+      status: 'online',
+      activities: [{ name: '/공지 /아리모집 /팀', type: 0 }]
+    });
+  } catch {}
 });
 
-// =======================
-// 로그인
-// =======================
+// ─────────────────────────────
+// 로그인 (단 한 번만)
+// ─────────────────────────────
 if (!TOKEN) {
   console.error('[FATAL] BOT_TOKEN empty');
   process.exit(1);
@@ -257,3 +274,9 @@ client.login(TOKEN).catch((err) => {
   console.error('[LOGIN FAIL]', err?.code || err?.message || err);
   process.exit(1);
 });
+
+// ─────────────────────────────
+// 전역 에러
+// ─────────────────────────────
+process.on("unhandledRejection", (err) => console.error("[unhandledRejection]", err));
+process.on("uncaughtException", (err) => console.error("[uncaughtException]", err));
